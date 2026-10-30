@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Fork6 keyboard redesign: dark colour tokens (DESIGN_NOTES.md). -->
+<resources>
+    <color name="kb_background">#12141A</color>
+    <color name="kb_key">#22252D</color>
+    <color name="kb_key_alt">#2E3342</color>
+    <color name="kb_on_surface">#E3E4EC</color>
+    <color name="kb_on_surface_variant">#C4C6D0</color>
+    <color name="kb_outline">#44474F</color>
+    <color name="kb_primary">#B4C5FF</color>
+    <color name="kb_on_primary">#0B2A73</color>
+    <color name="kb_primary_container">#2A4199</color>
+    <color name="kb_on_primary_container">#DCE1FF</color>
+    <color name="kb_tertiary">#D3BBFF</color>
+    <color name="kb_tertiary_container">#4F378B</color>
+    <color name="kb_on_tertiary_container">#EADDFF</color>
+    <color name="kb_recording">#FFB4AB</color>
+    <color name="kb_on_recording">#690005</color>
+    <color name="kb_recording_container">#93000A</color>
+    <color name="kb_ripple">#33FFFFFF</color>
+</resources>

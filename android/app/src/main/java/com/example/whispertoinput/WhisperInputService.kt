@@ -42,12 +42,15 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.text.BreakIterator
+import java.util.Locale
 
 private const val RECORDED_AUDIO_FILENAME_M4A = "recorded.m4a"
 private const val RECORDED_AUDIO_FILENAME_OGG = "recorded.ogg"
 private const val AUDIO_MEDIA_TYPE_M4A = "audio/mp4"
 private const val AUDIO_MEDIA_TYPE_OGG = "audio/ogg"
 private const val IME_SWITCH_OPTION_AVAILABILITY_API_LEVEL = 28
+private const val WORD_DELETE_LOOKBEHIND = 64
 
 class WhisperInputService : InputMethodService() {
     private val whisperKeyboard: WhisperKeyboard = WhisperKeyboard()
@@ -61,10 +64,10 @@ class WhisperInputService : InputMethodService() {
     private fun transcriptionCallback(text: String?) {
         if (!text.isNullOrEmpty()) {
             currentInputConnection?.commitText(text, 1)
-            // Fork change: show this text as the last result on the
-            // keyboard panel (the transcriber already saved it to
-            // local storage); reset() below must not clear it.
-            whisperKeyboard.setLastResult(text)
+            // Fork6: the panel switches to the result card (raw vs polished,
+            // read back from the record the transcriber already saved) and
+            // remembers the inserted text so "undo" can delete it again.
+            whisperKeyboard.showResult(text)
             // Check if auto-switch-back is enabled and switch if so
             CoroutineScope(Dispatchers.Main).launch {
                 val autoSwitchBack = dataStore.data.map { preferences: Preferences ->
@@ -74,8 +77,9 @@ class WhisperInputService : InputMethodService() {
                     onSwitchIme()
                 }
             }
+        } else {
+            whisperKeyboard.reset()
         }
-        whisperKeyboard.reset()
     }
 
     private fun transcriptionExceptionCallback(message: String) {
@@ -184,6 +188,10 @@ class WhisperInputService : InputMethodService() {
             { onOpenSettings() },
             { shouldShowRetry() },
             { onShowInputMethodPicker() },
+            { onDeleteWord() },
+            { text -> onInsertText(text) },
+            { length -> onUndoInsert(length) },
+            { raw, done -> whisperTranscriber.polishAsync(this, raw, done) },
         )
     }
 
@@ -265,6 +273,42 @@ class WhisperInputService : InputMethodService() {
         } else {
             inputConnection.commitText("", 1)
         }
+    }
+
+    // Fork6: backspace held for 1.5s deletes a whole word per step. Word
+    // boundaries come from BreakIterator, which also segments Chinese.
+    private fun onDeleteWord() {
+        val inputConnection = currentInputConnection ?: return
+        val selectedText = inputConnection.getSelectedText(0)
+        if (!TextUtils.isEmpty(selectedText)) {
+            inputConnection.commitText("", 1)
+            return
+        }
+        val before = inputConnection.getTextBeforeCursor(WORD_DELETE_LOOKBEHIND, 0)?.toString()
+        if (before.isNullOrEmpty()) {
+            inputConnection.deleteSurroundingText(1, 0)
+            return
+        }
+        val iterator = BreakIterator.getWordInstance(Locale.TAIWAN)
+        iterator.setText(before)
+        var end = before.length
+        var start = iterator.preceding(end)
+        // Skip whitespace-only segments so "word  |" deletes the word too.
+        while (start != BreakIterator.DONE && before.substring(start, end).isBlank() && start > 0) {
+            end = start
+            start = iterator.preceding(end)
+        }
+        val length = if (start == BreakIterator.DONE) before.length else before.length - start
+        inputConnection.deleteSurroundingText(maxOf(length, 1), 0)
+    }
+
+    // Fork6: result card "insert" / "undo".
+    private fun onInsertText(text: String) {
+        currentInputConnection?.commitText(text, 1)
+    }
+
+    private fun onUndoInsert(length: Int) {
+        if (length > 0) currentInputConnection?.deleteSurroundingText(length, 0)
     }
 
     private fun onSwitchIme() {

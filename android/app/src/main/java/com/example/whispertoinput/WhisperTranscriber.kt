@@ -222,6 +222,47 @@ class WhisperTranscriber {
         registerTranscriptionJob(job)
     }
 
+    /**
+     * Fork6: polish an already transcribed text again (the "re-polish"
+     * action on the result card). Uses the same polish settings as the
+     * normal pipeline but ignores the on/off switch and the short-text
+     * threshold, because the user asked for it explicitly. [callback]
+     * runs on the main thread with the polished text, or null when
+     * polishing failed or was cancelled. On success the last record is
+     * updated, so the keyboard and the history keep agreeing.
+     * Cancel with [stop], like a normal transcription.
+     */
+    fun polishAsync(context: Context, rawText: String, callback: (String?) -> Unit) {
+        val job = CoroutineScope(Dispatchers.Main).launch {
+            val polished = withContext(Dispatchers.IO) {
+                try {
+                    val prefs = context.dataStore.data.first()
+                    val sttKey = prefs[API_KEY] ?: ""
+                    val polished = PolishClient.polish(
+                        rawText,
+                        PolishConfig(
+                            enabled = true,
+                            endpoint = prefs[LLM_ENDPOINT] ?: DEFAULT_LLM_ENDPOINT,
+                            model = prefs[LLM_MODEL] ?: DEFAULT_LLM_MODEL,
+                            apiKey = (prefs[LLM_API_KEY] ?: "").ifBlank { sttKey },
+                            prompt = prefs[LLM_PROMPT] ?: DEFAULT_POLISH_PROMPT
+                        )
+                    )
+                    if (polished != null) {
+                        TranscriptionHistory.add(context, rawText, polished)
+                    }
+                    polished
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            callback(polished)
+        }
+        registerTranscriptionJob(job)
+    }
+
     fun stop() {
         registerTranscriptionJob(null)
     }

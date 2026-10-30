@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Fork6 keyboard redesign: light colour tokens (seed #3B5BDB).
+     The dark counterparts live in values-night/kb_colors.xml. -->
+<resources>
+    <color name="kb_background">#EEF0F8</color>
+    <color name="kb_key">#FFFFFF</color>
+    <color name="kb_key_alt">#DCE1F2</color>
+    <color name="kb_on_surface">#1A1C22</color>
+    <color name="kb_on_surface_variant">#44474F</color>
+    <color name="kb_outline">#C4C6D0</color>
+    <color name="kb_primary">#3B5BDB</color>
+    <color name="kb_on_primary">#FFFFFF</color>
+    <color name="kb_primary_container">#DCE1FF</color>
+    <color name="kb_on_primary_container">#0E1A4F</color>
+    <color name="kb_tertiary">#6B4FBF</color>
+    <color name="kb_tertiary_container">#EADDFF</color>
+    <color name="kb_on_tertiary_container">#25005A</color>
+    <color name="kb_recording">#D32F2F</color>
+    <color name="kb_on_recording">#FFFFFF</color>
+    <color name="kb_recording_container">#FFDAD6</color>
+    <color name="kb_ripple">#1F000000</color>
+</resources>

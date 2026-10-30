@@ -19,26 +19,33 @@
 
 package com.example.whispertoinput.keyboard
 
-import android.util.Log
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.text.TextUtils
-import android.view.GestureDetector
+import android.content.res.ColorStateList
+import android.graphics.Paint
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
+import android.view.HapticFeedbackConstants
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.widget.ImageButton
 import android.widget.ImageView
-import android.widget.ProgressBar
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
-import com.example.whispertoinput.TranscriptionHistory
-import androidx.constraintlayout.widget.ConstraintLayout
+import androidx.annotation.ColorRes
+import androidx.annotation.DrawableRes
+import androidx.annotation.StringRes
+import androidx.core.content.ContextCompat
 import androidx.core.math.MathUtils
 import androidx.datastore.preferences.core.edit
+import com.example.whispertoinput.LANGUAGE_CODE
 import com.example.whispertoinput.POLISH_ENABLED
 import com.example.whispertoinput.R
+import com.example.whispertoinput.TranscriptionHistory
 import com.example.whispertoinput.dataStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -46,21 +53,36 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlin.math.log10
-import kotlin.math.pow
 
 private const val AMPLITUDE_CLAMP_MIN: Int = 10
 private const val AMPLITUDE_CLAMP_MAX: Int = 25000
 private const val LOG_10_10: Float = 1.0F
 private const val LOG_10_25000: Float = 4.398F
-private const val AMPLITUDE_ANIMATION_DURATION: Long = 500
-private val amplitudePowers: Array<Float> = arrayOf(0.5f, 1.0f, 2f, 3f)
 
+// Fork6 gesture / timing constants (DESIGN_NOTES.md).
+private const val HOLD_TO_TALK_MS: Long = 400
+private const val SWIPE_CANCEL_DP: Float = 48f
+private const val WAVEFORM_TICK_MS: Long = 50
+private const val LEVEL_DECAY_PER_TICK: Float = 0.90f
+
+private const val LANGUAGE_AUTO = "auto"
+private const val LANGUAGE_ZH = "zh"
+private const val LANGUAGE_EN = "en"
+
+/**
+ * Fork6 redesigned keyboard panel. The whole panel is driven by one
+ * [UiState]; [render] is the only place that decides what is visible,
+ * so no screen part has its own scattered visibility logic.
+ */
 class WhisperKeyboard {
-    private enum class KeyboardStatus {
-        Idle,             // Ready to start recording
-        Recording,       // Currently recording
-        Transcribing,    // Waiting for transcription results
+    private enum class UiState {
+        Idle,        // Ready to start recording
+        Recording,   // Currently recording
+        Processing,  // Waiting for transcription / polishing
+        Result,      // Result card (raw vs polished) with quick actions
     }
+
+    private enum class ProcessingStep { Transcribing, Polishing }
 
     // Keyboard event listeners. Assignable custom behaviors upon certain UI events (user-operated).
     private var onStartRecording: () -> Unit = { }
@@ -68,6 +90,7 @@ class WhisperKeyboard {
     private var onStartTranscribing: (attachToEnd: String) -> Unit = { }
     private var onCancelTranscribing: () -> Unit = { }
     private var onButtonBackspace: () -> Unit = { }
+    private var onButtonBackspaceWord: () -> Unit = { }
     private var onSwitchIme: () -> Unit = { }
     // Fork change: long-press on the switch key shows the system IME picker.
     private var onShowInputMethodPicker: () -> Unit = { }
@@ -75,56 +98,107 @@ class WhisperKeyboard {
     private var onEnter: () -> Unit = { }
     private var onSpaceBar: () -> Unit = { }
     private var shouldShowRetry: () -> Boolean = { false }
+    // Fork6: result-card actions that need the input connection / network.
+    private var onInsertText: (String) -> Unit = { }
+    private var onUndoInsert: (Int) -> Unit = { }
+    private var onRepolish: (raw: String, done: (String?) -> Unit) -> Unit = { _, done -> done(null) }
 
-    // Keyboard Status
-    private var keyboardStatus: KeyboardStatus = KeyboardStatus.Idle
+    // ---- state ----
+    private var state: UiState = UiState.Idle
+    private var processingStep: ProcessingStep = ProcessingStep.Transcribing
+    private var showPolishStep: Boolean = true
+    private var repolishing: Boolean = false
+    private var stagedRaw: String? = null
 
-    // Views & Keyboard Layout
-    private var keyboardView: ConstraintLayout? = null
-    private var buttonMic: ImageButton? = null
-    private var buttonEnter: ImageButton? = null
-    private var buttonCancel: ImageButton? = null
-    private var buttonRetry: ImageButton? = null
-    private var labelStatus: TextView? = null
-    // Fork change (fork4): second result line for the polished text.
-    // label_status shows the raw text (dimmer, smaller); this view
-    // shows the polished text (normal size) only when polishing
-    // succeeded, and shows "正在潤飾中…" while an LLM call is in
-    // flight. It is gone whenever there is no polished text to show
-    // (no record yet, polishing skipped / failed / switched off, or
-    // a plain recording / transcribing status is showing).
-    private var labelPolished: TextView? = null
+    // Last record (what the history file holds) and the result card.
     private var rawResultText: String? = null
     private var polishedResultText: String? = null
-    private var polishingInFlight: Boolean = false
-    private var buttonSpaceBar: ImageButton? = null
-    private var waitingIcon: ProgressBar? = null
-    private var buttonBackspace: BackspaceButton? = null
-    private var buttonPreviousIme: ImageButton? = null
-    private var buttonSettings: ImageButton? = null
-    // Fork change (fork3): on-keyboard polish toggle. It reads and
-    // writes the SAME DataStore key as the settings page
-    // (POLISH_ENABLED), so the two can never disagree. The value is
-    // only consulted when a new transcription starts (see
-    // WhisperTranscriber, which snapshots the config before the STT
-    // request), so flipping this mid-recording / mid-polish cannot
-    // cancel or change the run already in flight.
-    private var buttonPolishToggle: ImageButton? = null
+    private val lastResultText: String? get() = polishedResultText ?: rawResultText
+    // Text that is currently sitting in the editor because of this card
+    // (null = nothing to undo). Undo deletes exactly this many chars.
+    private var insertedText: String? = null
+    // The result text (without the space / newline suffix) that
+    // insertedText corresponds to, so "insert" is only offered for a text
+    // that is not already in the editor.
+    private var insertedBase: String? = null
+
     private var polishEnabled: Boolean = true
-    // Fork change: last transcription result (see TranscriptionHistory).
-    private var buttonCopyLastResult: ImageButton? = null
-    private var lastResultText: String? = null
-    // Fork change (fork2): staged polish display. While the
-    // transcription->polish pipeline is running, the keyboard stays in
-    // Transcribing status, but the top label is overridden by the
-    // current stage (raw text, then "正在潤飾中…"). pipelineActive is
-    // what lets a label tap copy the staged text during the pipeline;
-    // outside the pipeline, copying is idle-only as before, so a stale
-    // result can never be copied while recording or transcribing.
-    private var pipelineActive: Boolean = false
-    private var stagedText: String? = null
-    private var micRippleContainer: ConstraintLayout? = null
-    private var micRipples: Array<ImageView> = emptyArray()
+    private var languageCode: String = LANGUAGE_AUTO
+    private var offerImeSwitch: Boolean = true
+
+    // Mic gesture bookkeeping
+    private var micDownTime: Long = 0
+    private var micDownY: Float = 0f
+    private var micStartedRecording: Boolean = false
+    private var cancelArmed: Boolean = false
+
+    // Recording visuals
+    private val handler = Handler(Looper.getMainLooper())
+    private var recordingStartMs: Long = 0
+    private var levelTarget: Float = 0f
+    private var levelSmoothed: Float = 0f
+    private var shownSeconds: Int = -1
+    private val ticker = object : Runnable {
+        override fun run() {
+            if (state != UiState.Recording) return
+            levelTarget *= LEVEL_DECAY_PER_TICK
+            levelSmoothed = levelSmoothed * 0.5f + levelTarget * 0.5f
+            waveLeft?.pushLevel(jitter(levelSmoothed))
+            waveRight?.pushLevel(jitter(levelSmoothed))
+            val seconds = ((SystemClock.uptimeMillis() - recordingStartMs) / 1000).toInt()
+            if (seconds != shownSeconds) {
+                shownSeconds = seconds
+                previewTimer?.text = formatTimer(seconds)
+            }
+            handler.postDelayed(this, WAVEFORM_TICK_MS)
+        }
+    }
+
+    // ---- views ----
+    private var keyboardView: View? = null
+    private var previewChip: LinearLayout? = null
+    private var previewTag: TextView? = null
+    private var recordingDot: View? = null
+    private var previewText: TextView? = null
+    private var previewTimer: TextView? = null
+    private var buttonPreviewInsert: ImageButton? = null
+    private var buttonPolishToggle: LinearLayout? = null
+    private var polishIcon: ImageView? = null
+    private var polishLabel: TextView? = null
+    private var polishSwitch: ImageView? = null
+    private var buttonSettings: ImageButton? = null
+
+    private var groupMain: View? = null
+    private var groupResult: View? = null
+    private var keyLanguageCol: View? = null
+    private var buttonLanguage: ImageButton? = null
+    private var labelLanguage: TextView? = null
+    private var keyHistoryCol: View? = null
+    private var buttonHistory: ImageButton? = null
+    private var waveLeft: WaveformView? = null
+    private var waveRight: WaveformView? = null
+    private var pulseRings: PulseRingView? = null
+    private var spinnerRing: SpinnerRingView? = null
+    private var buttonMic: ImageButton? = null
+    private var labelHint: TextView? = null
+    private var stepsContainer: View? = null
+    private var stepRecord: TextView? = null
+    private var stepTranscribe: TextView? = null
+    private var stepPolish: TextView? = null
+    private var buttonRetry: TextView? = null
+
+    private var rowAi: View? = null
+    private var textRaw: TextView? = null
+    private var textAi: TextView? = null
+    private var actionInsert: View? = null
+    private var actionRepolish: View? = null
+    private var actionCopy: View? = null
+    private var actionUndo: View? = null
+
+    private var buttonLeftAction: ImageButton? = null
+    private var buttonSpaceBar: View? = null
+    private var buttonBackspace: BackspaceButton? = null
+    private var buttonEnter: ImageButton? = null
 
     fun setup(
         layoutInflater: LayoutInflater,
@@ -140,377 +214,686 @@ class WhisperKeyboard {
         onOpenSettings: () -> Unit,
         shouldShowRetry: () -> Boolean,
         onShowInputMethodPicker: () -> Unit = { },
+        onButtonBackspaceWord: () -> Unit = { },
+        onInsertText: (String) -> Unit = { },
+        onUndoInsert: (Int) -> Unit = { },
+        onRepolish: (raw: String, done: (String?) -> Unit) -> Unit = { _, done -> done(null) },
     ): View {
-        // Inflate the keyboard layout & assign views
-        keyboardView = layoutInflater.inflate(R.layout.keyboard_view, null) as ConstraintLayout
-        buttonMic = keyboardView!!.findViewById(R.id.btn_mic) as ImageButton
-        buttonEnter = keyboardView!!.findViewById(R.id.btn_enter) as ImageButton
-        buttonCancel = keyboardView!!.findViewById(R.id.btn_cancel) as ImageButton
-        buttonRetry = keyboardView!!.findViewById(R.id.btn_retry) as ImageButton
-        labelStatus = keyboardView!!.findViewById(R.id.label_status) as TextView
-        labelPolished = keyboardView!!.findViewById(R.id.label_polished) as TextView
-        buttonSpaceBar = keyboardView!!.findViewById(R.id.btn_space_bar) as ImageButton
-        waitingIcon = keyboardView!!.findViewById(R.id.pb_waiting_icon) as ProgressBar
-        buttonBackspace = keyboardView!!.findViewById(R.id.btn_backspace) as BackspaceButton
-        buttonPreviousIme = keyboardView!!.findViewById(R.id.btn_previous_ime) as ImageButton
-        buttonSettings = keyboardView!!.findViewById(R.id.btn_settings) as ImageButton
-        buttonPolishToggle =
-            keyboardView!!.findViewById(R.id.btn_polish_toggle) as ImageButton
-        buttonCopyLastResult =
-            keyboardView!!.findViewById(R.id.btn_copy_last_result) as ImageButton
-        micRippleContainer = keyboardView!!.findViewById(R.id.mic_ripples) as ConstraintLayout
-        micRipples = arrayOf(
-            keyboardView!!.findViewById(R.id.mic_ripple_0) as ImageView,
-            keyboardView!!.findViewById(R.id.mic_ripple_1) as ImageView,
-            keyboardView!!.findViewById(R.id.mic_ripple_2) as ImageView,
-            keyboardView!!.findViewById(R.id.mic_ripple_3) as ImageView
-        )
+        val root = layoutInflater.inflate(R.layout.keyboard_view, null)
+        keyboardView = root
+        offerImeSwitch = shouldOfferImeSwitch
 
-        // Hide buttonPreviousIme if necessary
-        if (!shouldOfferImeSwitch) {
-            buttonPreviousIme!!.visibility = View.GONE
-        }
+        previewChip = root.findViewById(R.id.preview_chip)
+        previewTag = root.findViewById(R.id.preview_tag)
+        recordingDot = root.findViewById(R.id.recording_dot)
+        previewText = root.findViewById(R.id.preview_text)
+        previewTimer = root.findViewById(R.id.preview_timer)
+        buttonPreviewInsert = root.findViewById(R.id.btn_preview_insert)
+        buttonPolishToggle = root.findViewById(R.id.btn_polish_toggle)
+        polishIcon = root.findViewById(R.id.polish_icon)
+        polishLabel = root.findViewById(R.id.polish_label)
+        polishSwitch = root.findViewById(R.id.polish_switch)
+        buttonSettings = root.findViewById(R.id.btn_settings)
 
-        // Set onClick listeners
-        buttonMic!!.setOnClickListener { onButtonMicClick() }
-        buttonEnter!!.setOnClickListener { onButtonEnterClick() }
-        buttonCancel!!.setOnClickListener { onButtonCancelClick() }
-        buttonRetry!!.setOnClickListener { onButtonRetryClick() }
-        buttonSettings!!.setOnClickListener { onButtonSettingsClick() }
-        buttonPolishToggle!!.setOnClickListener { onButtonPolishToggleClick() }
-        buttonBackspace!!.setBackspaceCallback { onButtonBackspaceClick() }
-        buttonSpaceBar!!.setOnClickListener { onButtonSpaceBarClick() }
-        // Fork change: copy-last-result button copies what was
-        // actually inserted (polished if present, else raw). Each
-        // result line copies its own full text (not the truncated
-        // display): the raw line copies the raw text, the polished
-        // line copies the polished text.
-        buttonCopyLastResult!!.setOnClickListener { copyLastResult() }
-        labelStatus!!.setOnClickListener { copyRawResult() }
-        labelPolished!!.setOnClickListener { copyPolishedResult() }
+        groupMain = root.findViewById(R.id.group_main)
+        groupResult = root.findViewById(R.id.group_result)
+        keyLanguageCol = root.findViewById(R.id.key_language_col)
+        buttonLanguage = root.findViewById(R.id.btn_language)
+        labelLanguage = root.findViewById(R.id.label_language)
+        keyHistoryCol = root.findViewById(R.id.key_history_col)
+        buttonHistory = root.findViewById(R.id.btn_history)
+        waveLeft = root.findViewById<WaveformView>(R.id.wave_left).also { it.newestOnRight = true }
+        waveRight = root.findViewById<WaveformView>(R.id.wave_right).also { it.newestOnRight = false }
+        pulseRings = root.findViewById(R.id.pulse_rings)
+        spinnerRing = root.findViewById(R.id.spinner_ring)
+        buttonMic = root.findViewById(R.id.btn_mic)
+        labelHint = root.findViewById(R.id.label_hint)
+        stepsContainer = root.findViewById(R.id.steps_container)
+        stepRecord = root.findViewById(R.id.step_record)
+        stepTranscribe = root.findViewById(R.id.step_transcribe)
+        stepPolish = root.findViewById(R.id.step_polish)
+        buttonRetry = root.findViewById(R.id.btn_retry)
 
-        if (shouldOfferImeSwitch) {
-            buttonPreviousIme!!.setOnClickListener { onButtonPreviousImeClick() }
-            // Fork change: long-press shows the system IME picker so the
-            // user can pick any enabled IME, not just the previous one.
-            // Returning true consumes the long-press so the short-press
-            // switch is NOT also triggered.
-            buttonPreviousIme!!.setOnLongClickListener {
-                onButtonPreviousImeLongClick()
-                true
-            }
-        }
+        rowAi = root.findViewById(R.id.row_ai)
+        textRaw = root.findViewById(R.id.text_raw)
+        textAi = root.findViewById(R.id.text_ai)
+        actionInsert = root.findViewById(R.id.action_insert)
+        actionRepolish = root.findViewById(R.id.action_repolish)
+        actionCopy = root.findViewById(R.id.action_copy)
+        actionUndo = root.findViewById(R.id.action_undo)
 
-        // Set event listeners
+        buttonLeftAction = root.findViewById(R.id.btn_left_action)
+        buttonSpaceBar = root.findViewById(R.id.btn_space_bar)
+        buttonBackspace = root.findViewById(R.id.btn_backspace)
+        buttonEnter = root.findViewById(R.id.btn_enter)
+
+        // Event listeners supplied by the service
         this.onStartRecording = onStartRecording
         this.onCancelRecording = onCancelRecording
         this.onStartTranscribing = onStartTranscribing
         this.onCancelTranscribing = onCancelTranscribing
         this.onButtonBackspace = onButtonBackspace
+        this.onButtonBackspaceWord = onButtonBackspaceWord
         this.onSwitchIme = onSwitchIme
         this.onShowInputMethodPicker = onShowInputMethodPicker
         this.onOpenSettings = onOpenSettings
         this.onEnter = onEnter
         this.onSpaceBar = onSpaceBar
         this.shouldShowRetry = shouldShowRetry
+        this.onInsertText = onInsertText
+        this.onUndoInsert = onUndoInsert
+        this.onRepolish = onRepolish
+
+        setupMicGesture()
+        buttonLeftAction!!.setOnClickListener { onLeftActionClick() }
+        buttonLeftAction!!.setOnLongClickListener { onLeftActionLongClick() }
+        buttonSpaceBar!!.setOnClickListener { onButtonSpaceBarClick() }
+        buttonEnter!!.setOnClickListener { onButtonEnterClick() }
+        buttonBackspace!!.setBackspaceCallback(
+            { this.onButtonBackspace() },
+            { this.onButtonBackspaceWord() }
+        )
+        buttonSettings!!.setOnClickListener { this.onOpenSettings() }
+        buttonPolishToggle!!.setOnClickListener { onButtonPolishToggleClick() }
+        buttonLanguage!!.setOnClickListener { onLanguageClick() }
+        buttonHistory!!.setOnClickListener { onHistoryClick() }
+        buttonPreviewInsert!!.setOnClickListener { lastResultText?.let { this.onInsertText(it) } }
+        // Tapping the preview text still copies the last result (as before).
+        previewText!!.setOnClickListener { if (state == UiState.Idle) copyText(lastResultText) }
+        buttonRetry!!.setOnClickListener { onButtonRetryClick() }
+        actionInsert!!.setOnClickListener { onActionInsert() }
+        actionRepolish!!.setOnClickListener { onActionRepolish() }
+        actionCopy!!.setOnClickListener { copyText(lastResultText) }
+        actionUndo!!.setOnClickListener { onActionUndo() }
 
         // Resets keyboard upon setup
         reset()
 
-        // Fork change (fork3): paint the polish toggle from the saved
-        // value (same key as the settings page, default on) as soon as
-        // the keyboard view is built, so it is never shown in the
-        // wrong state while the user waits.
-        refreshPolishToggle()
-
-        // Returns the keyboard view (non-nullable)
-        return keyboardView!!
+        return root
     }
+
+    // =====================================================================
+    // Public entry points used by WhisperInputService
+    // =====================================================================
 
     fun reset() {
-        // Fork change: reload the last result before going idle, so a
-        // rebuilt keyboard view (switching apps and back) still shows
-        // the last result instead of the default title.
-        pipelineActive = false
-        stagedText = null
-        polishingInFlight = false
-        refreshLastResult()
-        setKeyboardStatus(KeyboardStatus.Idle)
-        // Fork change (fork3): re-read the toggle on every reset (the
-        // service calls reset() when the keyboard window is shown), so
-        // a change made in the settings page is picked up when the
-        // user comes back to the keyboard without a view rebuild.
+        handler.removeCallbacks(ticker)
+        repolishing = false
+        stagedRaw = null
+        insertedText = null
+        insertedBase = null
+        refreshLastRecord()
+        setState(UiState.Idle)
+        // Re-read the toggle and the language on every reset (the service
+        // calls reset() when the keyboard window is shown), so a change
+        // made in the settings page is picked up without a view rebuild.
         refreshPolishToggle()
-    }
-
-    // Fork change: called by the service right after a transcription is
-    // committed, before reset(). The transcriber has already saved
-    // the record (raw + polished, if any) by this point, so reload
-    // it here instead of guessing the split from the inserted text
-    // alone: the inserted text cannot tell raw from polished.
-    // reset() right after re-renders the same two lines again, which
-    // is harmless.
-    fun setLastResult(text: String?) {
-        pipelineActive = false
-        stagedText = null
-        polishingInFlight = false
-        val trimmed = text?.trim()
-        lastResultText = if (trimmed.isNullOrEmpty()) null else trimmed
-        refreshLastResult()
-        if (keyboardStatus == KeyboardStatus.Idle) {
-            updateStatusLabelForIdle()
-        }
-        updateCopyButton()
+        refreshLanguage()
     }
 
     /**
-     * Fork change (fork2), stage 1: STT finished, show the raw text on
-     * the top label before polishing starts. The text is not inserted
-     * yet; insertion happens exactly once, after polishing finishes
-     * (or is skipped / fails). Copying the staged text is allowed
-     * during the pipeline, so a tap copies this raw text, never a
-     * stale result from an earlier transcription.
+     * The transcription finished and [insertedText] was committed to the
+     * editor. Shows the result card for the record the transcriber just
+     * saved; [insertedText] is what "undo" will delete again.
      */
+    fun showResult(insertedText: String?) {
+        refreshLastRecord()
+        val inserted = insertedText?.takeIf { it.isNotEmpty() }
+        if (rawResultText.isNullOrEmpty() && inserted != null) {
+            // History could not be read back; still show what was inserted.
+            rawResultText = inserted.trim()
+            polishedResultText = null
+        }
+        this.insertedText = inserted
+        this.insertedBase = if (inserted != null) lastResultText else null
+        repolishing = false
+        stagedRaw = null
+        setState(UiState.Result)
+    }
+
+    /** Stage 1: STT finished, show the raw text in the preview chip. */
     fun showTranscriptionStage(text: String?) {
         val trimmed = text?.trim()
-        if (trimmed.isNullOrEmpty()) return
-        pipelineActive = true
-        polishingInFlight = false
-        stagedText = trimmed
-        // A new segment supersedes the previous record's polished
-        // line: it must not linger beside the new raw text.
-        rawResultText = trimmed
-        polishedResultText = null
-        lastResultText = trimmed
-        renderResultLines()
+        if (trimmed.isNullOrEmpty() || state != UiState.Processing) return
+        stagedRaw = trimmed
+        render()
     }
 
-    /**
-     * Fork change (fork2), stage 2, revised in fork4: an LLM polish
-     * call is in flight. The raw line stays visible, and the polished
-     * line shows "正在潤飾中…" instead of the raw line being
-     * replaced, so the user can still see what was detected while
-     * waiting on the LLM. The waiting icon and cancel button stay
-     * exactly as in Transcribing status.
-     */
+    /** Stage 2: an LLM polish call is in flight. */
     fun showPolishingStage() {
-        pipelineActive = true
-        polishingInFlight = true
-        renderResultLines()
-    }
-
-    private fun refreshLastResult() {
-        try {
-            val context = keyboardView?.context ?: return
-            // Fork change (fork2, fork4): the copy button shows what
-            // was actually inserted, so a polished record wins over
-            // its raw text; unpolished records fall back to raw. The
-            // two result lines keep the split, so both can be shown.
-            val record = TranscriptionHistory.loadLast(context)
-            rawResultText = record?.rawText
-            polishedResultText = record?.polishedText
-            lastResultText = record?.polishedText ?: record?.rawText
-        } catch (_: Exception) {
-            // Best-effort only; a missing record just shows the default.
-        }
-    }
-
-    /**
-     * Fork change (fork4): renders the two result lines. Only call
-     * this in Idle or while the pipeline is active; plain Recording /
-     * Transcribing statuses overwrite the top label with their own
-     * status text in setKeyboardStatus and hide the polished line.
-     * Prefixes are literal labels, not part of the copied text:
-     * copying always uses the full raw / polished string.
-     */
-    private fun renderResultLines() {
-        val status = labelStatus ?: return
-        val polished = labelPolished ?: return
-        val context = keyboardView?.context
-        if (rawResultText.isNullOrEmpty()) {
-            status.setText(R.string.whisper_to_input)
-            polished.visibility = View.GONE
-            return
-        }
-        val rawPrefix = context?.getString(R.string.result_raw_prefix) ?: "原文："
-        val polishedPrefix = context?.getString(R.string.result_polished_prefix) ?: "潤飾後："
-        status.text = rawPrefix + rawResultText!!
-        when {
-            polishingInFlight -> {
-                polished.visibility = View.VISIBLE
-                polished.text = polishedPrefix + (context?.getString(R.string.polishing) ?: "正在潤飾中…")
-            }
-            !polishedResultText.isNullOrEmpty() -> {
-                polished.visibility = View.VISIBLE
-                polished.text = polishedPrefix + polishedResultText!!
-            }
-            else -> {
-                polished.visibility = View.GONE
-            }
-        }
-    }
-
-    private fun updateStatusLabelForIdle() {
-        renderResultLines()
-    }
-
-    private fun copyLastResult() {
-        // Copy button: what was actually inserted (polished if
-        // present, else raw).
-        copyText(lastResultText)
-    }
-
-    private fun copyRawResult() {
-        // Raw line tap: the raw text, without its "原文：" prefix.
-        copyText(rawResultText)
-    }
-
-    private fun copyPolishedResult() {
-        // Polished line tap: the polished text, without its "潤飾後："
-        // prefix. While polishing is in flight there is no polished
-        // text yet, so the tap is a no-op rather than copying the
-        // "正在潤飾中…" status string.
-        if (polishingInFlight) return
-        copyText(polishedResultText)
-    }
-
-    private fun copyText(text: String?) {
-        // Only in idle, or during the staged pipeline (where the staged
-        // text is the current result, not a stale one): during plain
-        // recording / transcribing the label shows a status, and
-        // tapping must not copy a stale result.
-        if (keyboardStatus != KeyboardStatus.Idle && !pipelineActive) return
-        if (text.isNullOrEmpty()) return
-        val context = keyboardView?.context ?: return
-        try {
-            val clipboard =
-                context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            clipboard.setPrimaryClip(ClipData.newPlainText("transcription", text))
-            Toast.makeText(context, R.string.last_result_copied, Toast.LENGTH_SHORT).show()
-        } catch (_: Exception) {
-            // Copy failure must not crash the keyboard.
-        }
-    }
-
-    private fun updateCopyButton() {
-        val button = buttonCopyLastResult ?: return
-        // The left slot is shared with cancel / retry (see layout):
-        // recording / transcribing -> cancel owns the slot, hide copy;
-        // idle + retry visible -> retry owns the slot, hide copy
-        // (the label tap still copies);
-        // idle + no retry -> show copy, faded + disabled when empty.
-        when (keyboardStatus) {
-            KeyboardStatus.Recording, KeyboardStatus.Transcribing -> {
-                button.visibility = View.INVISIBLE
-            }
-            KeyboardStatus.Idle -> {
-                if (shouldShowRetry()) {
-                    button.visibility = View.INVISIBLE
-                } else {
-                    button.visibility = View.VISIBLE
-                    val hasResult = !lastResultText.isNullOrEmpty()
-                    button.isEnabled = hasResult
-                    button.alpha = if (hasResult) 1.0f else 0.35f
-                }
-            }
-        }
+        if (state != UiState.Processing) return
+        processingStep = ProcessingStep.Polishing
+        render()
     }
 
     fun updateMicrophoneAmplitude(amplitude: Int) {
-        if (keyboardStatus != KeyboardStatus.Recording) {
+        if (state != UiState.Recording) {
             return
         }
-
         val clampedAmplitude = MathUtils.clamp(
             amplitude,
             AMPLITUDE_CLAMP_MIN,
             AMPLITUDE_CLAMP_MAX
         )
-
-        // decibel-like calculation
+        // decibel-like calculation, 0..1
         val normalizedPower =
             (log10(clampedAmplitude * 1f) - LOG_10_10) / (LOG_10_25000 - LOG_10_10)
-
-        // normalizedPower ranges from 0 to 1.
-        // The inner-most ripple should be the most sensitive to audio,
-        // represented by a gamma-correction-like curve.
-        for (micRippleIdx in micRipples.indices) {
-            micRipples[micRippleIdx].clearAnimation()
-            micRipples[micRippleIdx].alpha = normalizedPower.pow(amplitudePowers[micRippleIdx])
-            micRipples[micRippleIdx].animate().alpha(0f).setDuration(AMPLITUDE_ANIMATION_DURATION)
-                .start()
-        }
+        levelTarget = maxOf(levelTarget, normalizedPower.coerceIn(0f, 1f))
     }
 
     fun tryStartRecording() {
-        if (keyboardStatus == KeyboardStatus.Idle) {
-            setKeyboardStatus(KeyboardStatus.Recording)
-            onStartRecording()
+        if (state == UiState.Idle) {
+            startRecording()
         }
     }
 
     fun tryCancelRecording() {
-        if (keyboardStatus == KeyboardStatus.Recording) {
-            setKeyboardStatus(KeyboardStatus.Idle)
-            onCancelRecording()
+        if (state == UiState.Recording) {
+            cancelRecording()
         }
     }
 
     fun tryStartTranscribing(attachToEnd: String) {
-        if (keyboardStatus == KeyboardStatus.Recording) {
-            setKeyboardStatus(KeyboardStatus.Transcribing)
+        if (state == UiState.Recording) {
+            beginProcessing()
             onStartTranscribing(attachToEnd)
         }
     }
 
+    // =====================================================================
+    // State transitions
+    // =====================================================================
+
+    private fun setState(newState: UiState) {
+        state = newState
+        handler.removeCallbacks(ticker)
+        if (newState == UiState.Recording) {
+            recordingStartMs = SystemClock.uptimeMillis()
+            levelTarget = 0f
+            levelSmoothed = 0f
+            shownSeconds = -1
+            cancelArmed = false
+            waveLeft?.clear()
+            waveRight?.clear()
+            handler.post(ticker)
+        }
+        render()
+    }
+
+    private fun startRecording() {
+        setState(UiState.Recording)
+        onStartRecording()
+    }
+
+    private fun cancelRecording() {
+        setState(UiState.Idle)
+        onCancelRecording()
+    }
+
+    private fun beginProcessing() {
+        processingStep = ProcessingStep.Transcribing
+        showPolishStep = polishEnabled
+        repolishing = false
+        stagedRaw = null
+        setState(UiState.Processing)
+    }
+
+    // =====================================================================
+    // The one place that decides what is on screen
+    // =====================================================================
+
+    private fun render() {
+        val view = keyboardView ?: return
+        val context = view.context
+        val s = state
+
+        renderTopRow(context, s)
+
+        groupMain?.visibility = if (s == UiState.Result) View.GONE else View.VISIBLE
+        groupResult?.visibility = if (s == UiState.Result) View.VISIBLE else View.GONE
+
+        keyLanguageCol?.visibility = if (s == UiState.Idle) View.VISIBLE else View.GONE
+        keyHistoryCol?.visibility = if (s == UiState.Idle) View.VISIBLE else View.GONE
+        waveLeft?.visibility = if (s == UiState.Recording) View.VISIBLE else View.GONE
+        waveRight?.visibility = if (s == UiState.Recording) View.VISIBLE else View.GONE
+        pulseRings?.visibility = if (s == UiState.Recording) View.VISIBLE else View.GONE
+        spinnerRing?.visibility = if (s == UiState.Processing) View.VISIBLE else View.GONE
+
+        renderMic(context, s)
+        renderHintRow(context, s)
+        renderBottomRow(context, s)
+        if (s == UiState.Result) renderResultCard(context)
+
+        view.keepScreenOn = s == UiState.Recording || s == UiState.Processing
+    }
+
+    private fun renderTopRow(context: Context, s: UiState) {
+        val chip = previewChip ?: return
+        val tag = previewTag ?: return
+        val text = previewText ?: return
+        when (s) {
+            UiState.Idle -> {
+                chip.setBackgroundResource(R.drawable.kb_bg_chip)
+                tag.visibility = View.VISIBLE
+                tag.setText(R.string.kb_tag_last)
+                recordingDot?.visibility = View.GONE
+                previewTimer?.visibility = View.GONE
+                text.text = lastResultText ?: context.getString(R.string.kb_no_last_result)
+                text.setTextColor(color(context, R.color.kb_on_surface))
+                buttonPreviewInsert?.visibility =
+                    if (lastResultText != null) View.VISIBLE else View.GONE
+            }
+
+            UiState.Recording -> {
+                chip.setBackgroundResource(R.drawable.kb_bg_chip_recording)
+                tag.visibility = View.GONE
+                recordingDot?.visibility = View.VISIBLE
+                previewTimer?.visibility = View.VISIBLE
+                previewTimer?.text = formatTimer(0)
+                text.setText(R.string.kb_recording_label)
+                text.setTextColor(color(context, R.color.kb_recording))
+                buttonPreviewInsert?.visibility = View.GONE
+            }
+
+            UiState.Processing -> {
+                chip.setBackgroundResource(R.drawable.kb_bg_chip)
+                tag.visibility = View.VISIBLE
+                tag.setText(R.string.kb_tag_processing)
+                recordingDot?.visibility = View.GONE
+                previewTimer?.visibility = View.GONE
+                text.text = stagedRaw ?: context.getString(
+                    if (processingStep == ProcessingStep.Polishing) R.string.kb_step_polishing
+                    else R.string.kb_step_transcribing
+                )
+                text.setTextColor(color(context, R.color.kb_on_surface))
+                buttonPreviewInsert?.visibility = View.GONE
+            }
+
+            UiState.Result -> {
+                chip.setBackgroundResource(R.drawable.kb_bg_chip)
+                tag.visibility = View.VISIBLE
+                tag.setText(R.string.kb_tag_done)
+                recordingDot?.visibility = View.GONE
+                previewTimer?.visibility = View.GONE
+                text.setText(
+                    if (insertedText != null) R.string.kb_result_hint_inserted
+                    else R.string.kb_result_hint_insert
+                )
+                text.setTextColor(color(context, R.color.kb_on_surface))
+                buttonPreviewInsert?.visibility = View.GONE
+            }
+        }
+    }
+
+    private fun renderMic(context: Context, s: UiState) {
+        val mic = buttonMic ?: return
+        when (s) {
+            UiState.Idle, UiState.Result -> {
+                mic.setBackgroundResource(R.drawable.kb_bg_mic_idle)
+                mic.scaleType = ImageView.ScaleType.FIT_CENTER
+                mic.setImageResource(R.drawable.kb_ic_mic)
+                mic.imageTintList = tint(context, R.color.kb_on_primary)
+                mic.contentDescription = context.getString(R.string.start_speech_to_text)
+                animateMicScale(1f)
+            }
+
+            UiState.Recording -> {
+                mic.setBackgroundResource(R.drawable.kb_bg_mic_recording)
+                mic.scaleType = ImageView.ScaleType.CENTER
+                mic.setImageResource(R.drawable.kb_stop_square)
+                mic.imageTintList = null
+                mic.contentDescription = context.getString(R.string.start_transcribing)
+                animateMicScale(84f / 96f)
+            }
+
+            UiState.Processing -> {
+                mic.setBackgroundResource(R.drawable.kb_bg_mic_processing)
+                mic.scaleType = ImageView.ScaleType.FIT_CENTER
+                mic.setImageResource(R.drawable.kb_ic_sparkle)
+                mic.imageTintList = tint(context, R.color.kb_on_primary_container)
+                mic.contentDescription = null
+                animateMicScale(1f)
+            }
+        }
+    }
+
+    private fun animateMicScale(scale: Float) {
+        val mic = buttonMic ?: return
+        if (mic.scaleX == scale) return
+        mic.animate().scaleX(scale).scaleY(scale).setDuration(120).start()
+    }
+
+    private fun renderHintRow(context: Context, s: UiState) {
+        val hint = labelHint ?: return
+        val steps = stepsContainer ?: return
+        when (s) {
+            UiState.Idle, UiState.Recording -> {
+                steps.visibility = View.GONE
+                hint.visibility = View.VISIBLE
+                hint.setText(
+                    when {
+                        s == UiState.Idle -> R.string.kb_hint_idle
+                        cancelArmed -> R.string.kb_hint_cancel_armed
+                        else -> R.string.kb_hint_recording
+                    }
+                )
+            }
+
+            UiState.Processing -> {
+                hint.visibility = View.GONE
+                steps.visibility = View.VISIBLE
+                renderStepChips(context)
+            }
+
+            UiState.Result -> {
+                hint.visibility = View.GONE
+                steps.visibility = View.GONE
+            }
+        }
+        buttonRetry?.visibility =
+            if (s == UiState.Idle && shouldShowRetry()) View.VISIBLE else View.GONE
+    }
+
+    private fun renderStepChips(context: Context) {
+        val transcribe = stepTranscribe ?: return
+        val polish = stepPolish ?: return
+        val transcribing = processingStep == ProcessingStep.Transcribing
+        val polishing = processingStep == ProcessingStep.Polishing
+        stepRecord?.text = context.getString(R.string.kb_step_record_done)
+
+        transcribe.text = context.getString(
+            if (transcribing) R.string.kb_step_transcribing else R.string.kb_step_transcribe_done
+        )
+        styleStepChip(context, transcribe, active = transcribing)
+
+        // The polish step is only listed when polishing is on (or this is
+        // an explicit re-polish); with polishing off there is no such step.
+        polish.visibility = if (showPolishStep || polishing) View.VISIBLE else View.GONE
+        polish.text = context.getString(
+            if (polishing) R.string.kb_step_polishing else R.string.kb_step_polish
+        )
+        styleStepChip(context, polish, active = polishing)
+    }
+
+    private fun styleStepChip(context: Context, chip: TextView, active: Boolean) {
+        chip.setBackgroundResource(
+            if (active) R.drawable.kb_bg_step_chip_active else R.drawable.kb_bg_step_chip
+        )
+        chip.setTextColor(
+            color(context, if (active) R.color.kb_on_primary_container else R.color.kb_on_surface_variant)
+        )
+        chip.setTypeface(null, if (active) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+    }
+
+    private fun renderBottomRow(context: Context, s: UiState) {
+        val left = buttonLeftAction ?: return
+        when (s) {
+            UiState.Idle -> {
+                left.visibility = if (offerImeSwitch) View.VISIBLE else View.INVISIBLE
+                left.setBackgroundResource(R.drawable.kb_bg_key_alt)
+                left.setImageResource(R.drawable.kb_ic_keyboard)
+                left.imageTintList = tint(context, R.color.kb_on_surface_variant)
+                left.contentDescription = context.getString(R.string.btn_previous_ime_hint)
+            }
+
+            UiState.Recording, UiState.Processing -> {
+                left.visibility = View.VISIBLE
+                left.setBackgroundResource(R.drawable.kb_bg_key_recording)
+                left.setImageResource(R.drawable.kb_ic_close)
+                left.imageTintList = tint(context, R.color.kb_recording)
+                left.contentDescription = context.getString(R.string.kb_cancel)
+            }
+
+            UiState.Result -> {
+                left.visibility = View.VISIBLE
+                left.setBackgroundResource(R.drawable.kb_bg_key_primary)
+                left.setImageResource(R.drawable.kb_ic_mic)
+                left.imageTintList = tint(context, R.color.kb_on_primary)
+                left.contentDescription = context.getString(R.string.start_speech_to_text)
+            }
+        }
+    }
+
+    private fun renderResultCard(context: Context) {
+        val raw = rawResultText.orEmpty()
+        val polished = polishedResultText
+        val hasPolished = !polished.isNullOrEmpty()
+        textRaw?.let {
+            it.text = raw
+            // Struck through and grey only when there is a polished text
+            // to compare it with.
+            it.paintFlags = if (hasPolished) it.paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
+            else it.paintFlags and Paint.STRIKE_THRU_TEXT_FLAG.inv()
+            it.setTextColor(
+                color(context, if (hasPolished) R.color.kb_on_surface_variant else R.color.kb_on_surface)
+            )
+        }
+        rowAi?.visibility = if (hasPolished) View.VISIBLE else View.GONE
+        textAi?.text = polished.orEmpty()
+
+        // Insert is only useful while the current text is not already the
+        // one sitting in the editor; undo only while something is there.
+        val canInsert = !lastResultText.isNullOrEmpty() && insertedBase != lastResultText
+        setActionEnabled(actionInsert, canInsert)
+        setActionEnabled(actionUndo, insertedText != null)
+        setActionEnabled(actionRepolish, raw.isNotEmpty())
+        setActionEnabled(actionCopy, !lastResultText.isNullOrEmpty())
+    }
+
+    private fun setActionEnabled(action: View?, enabled: Boolean) {
+        action ?: return
+        action.isEnabled = enabled
+        action.alpha = if (enabled) 1f else 0.4f
+    }
+
+    // =====================================================================
+    // Mic gesture: tap = start / stop, hold = talk (release sends),
+    // swipe up past 48dp while recording = cancel.
+    // =====================================================================
+
+    private fun setupMicGesture() {
+        val mic = buttonMic ?: return
+        // Accessibility services click the view instead of touching it.
+        mic.setOnClickListener {
+            when (state) {
+                UiState.Idle -> startRecording()
+                UiState.Recording -> stopAndTranscribe()
+                else -> Unit
+            }
+        }
+        mic.setOnTouchListener { v, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    micDownTime = SystemClock.uptimeMillis()
+                    micDownY = event.y
+                    cancelArmed = false
+                    micStartedRecording = false
+                    if (state == UiState.Idle) {
+                        micStartedRecording = true
+                        startRecording()
+                    }
+                    v.isPressed = true
+                }
+
+                MotionEvent.ACTION_MOVE -> {
+                    if (state == UiState.Recording) {
+                        val armed = micDownY - event.y > SWIPE_CANCEL_DP * v.resources.displayMetrics.density
+                        if (armed != cancelArmed) {
+                            cancelArmed = armed
+                            labelHint?.setText(
+                                if (armed) R.string.kb_hint_cancel_armed else R.string.kb_hint_recording
+                            )
+                        }
+                    }
+                }
+
+                MotionEvent.ACTION_UP -> {
+                    v.isPressed = false
+                    if (state == UiState.Recording) {
+                        val held = SystemClock.uptimeMillis() - micDownTime >= HOLD_TO_TALK_MS
+                        when {
+                            cancelArmed -> cancelRecording()
+                            // Pressed while idle: a quick tap keeps recording
+                            // (tap-to-start); a hold is hold-to-talk, so
+                            // releasing sends.
+                            micStartedRecording -> if (held) stopAndTranscribe()
+                            // Pressed while already recording: tap = stop.
+                            else -> stopAndTranscribe()
+                        }
+                    }
+                    cancelArmed = false
+                }
+
+                MotionEvent.ACTION_CANCEL -> {
+                    v.isPressed = false
+                    cancelArmed = false
+                }
+            }
+            true
+        }
+    }
+
+    private fun stopAndTranscribe() {
+        if (state != UiState.Recording) return
+        beginProcessing()
+        onStartTranscribing("")
+    }
+
+    // =====================================================================
+    // Button handlers
+    // =====================================================================
+
+    private fun onLeftActionClick() {
+        when (state) {
+            UiState.Idle -> onSwitchIme()
+            UiState.Recording -> cancelRecording()
+            UiState.Processing -> cancelProcessing()
+            UiState.Result -> startRecording()
+        }
+    }
+
+    private fun onLeftActionLongClick(): Boolean {
+        if (state != UiState.Idle) return false
+        // Fork change: long-press shows the system IME picker so the user
+        // can pick any enabled IME, not just the previous one.
+        buttonLeftAction?.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        onShowInputMethodPicker()
+        return true
+    }
+
+    private fun cancelProcessing() {
+        onCancelTranscribing()
+        val cameFromResult = repolishing
+        repolishing = false
+        stagedRaw = null
+        if (cameFromResult && !rawResultText.isNullOrEmpty()) {
+            setState(UiState.Result)
+        } else {
+            setState(UiState.Idle)
+        }
+    }
+
     private fun onButtonSpaceBarClick() {
-        // Upon button space bar click.
         // Recording -> Start transcribing (with a whitespace included)
         // else -> invokes onSpaceBar
-        if (keyboardStatus == KeyboardStatus.Recording) {
-            setKeyboardStatus(KeyboardStatus.Transcribing)
+        if (state == UiState.Recording) {
+            beginProcessing()
             onStartTranscribing(" ")
         } else {
             onSpaceBar()
         }
     }
 
-    private fun onButtonBackspaceClick() {
-        // Currently, this onClick only makes a call to onButtonBackspace()
-        this.onButtonBackspace()
-    }
-
-    private fun onButtonPreviousImeClick() {
-        // Currently, this onClick only makes a call to onSwitchIme()
-        this.onSwitchIme()
-    }
-
-    private fun onButtonPreviousImeLongClick() {
-        // Fork change: haptic feedback only (no animation, matching the
-        // project's plain style); the system picker itself is the
-        // confirmation that the long-press worked.
-        buttonPreviousIme!!.performHapticFeedback(
-            android.view.HapticFeedbackConstants.LONG_PRESS
-        )
-        this.onShowInputMethodPicker()
-    }
-
-    private fun onButtonSettingsClick() {
-        // Currently, this onClick only makes a call to onOpenSettings()
-        this.onOpenSettings()
-    }
-
-    // Fork change (fork3): polish toggle on the keyboard panel.
-    private fun updatePolishToggleButton() {
-        val button = buttonPolishToggle ?: return
-        // On: full brightness. Off: clearly faded, matching the faded
-        // copy-button pattern used elsewhere on this panel.
-        button.alpha = if (polishEnabled) 1.0f else 0.35f
-        button.contentDescription = if (polishEnabled) {
-            button.context.getString(R.string.polish_toggle_on)
+    private fun onButtonEnterClick() {
+        // Recording -> Start transcribing (with a newline included)
+        // else -> invokes onEnter
+        if (state == UiState.Recording) {
+            beginProcessing()
+            onStartTranscribing("\r\n")
         } else {
-            button.context.getString(R.string.polish_toggle_off)
+            onEnter()
         }
+    }
+
+    private fun onButtonRetryClick() {
+        // Idle -> retry the recording that is still on disk
+        if (state == UiState.Idle) {
+            beginProcessing()
+            onStartTranscribing("")
+        }
+    }
+
+    private fun onHistoryClick() {
+        if (state != UiState.Idle) return
+        refreshLastRecord()
+        if (rawResultText.isNullOrEmpty()) {
+            toast(R.string.kb_toast_no_history)
+            return
+        }
+        // Showing the last result again: nothing of it is in the editor
+        // yet as far as this card knows, so insert is offered, undo is not.
+        insertedText = null
+        insertedBase = null
+        setState(UiState.Result)
+    }
+
+    private fun onActionInsert() {
+        val text = lastResultText ?: return
+        if (insertedBase == text) return
+        onInsertText(text)
+        insertedText = text
+        insertedBase = text
+        render()
+    }
+
+    private fun onActionUndo() {
+        val inserted = insertedText ?: return
+        // Remember-the-length undo: delete exactly what was inserted
+        // right before the cursor.
+        onUndoInsert(inserted.length)
+        insertedText = null
+        insertedBase = null
+        toast(R.string.kb_toast_undone)
+        render()
+    }
+
+    private fun onActionRepolish() {
+        val raw = rawResultText?.takeIf { it.isNotEmpty() } ?: return
+        processingStep = ProcessingStep.Polishing
+        showPolishStep = true
+        repolishing = true
+        stagedRaw = raw
+        setState(UiState.Processing)
+        onRepolish(raw) { polished ->
+            // Ignore a late answer after the user cancelled or left.
+            if (state != UiState.Processing || !repolishing) return@onRepolish
+            repolishing = false
+            stagedRaw = null
+            if (polished.isNullOrEmpty()) {
+                toast(R.string.kb_toast_repolish_failed)
+            } else {
+                polishedResultText = polished
+            }
+            setState(UiState.Result)
+        }
+    }
+
+    // =====================================================================
+    // Settings-backed bits: polish toggle and language
+    // =====================================================================
+
+    private fun updatePolishToggleButton() {
+        val toggle = buttonPolishToggle ?: return
+        val context = toggle.context
+        val on = polishEnabled
+        toggle.setBackgroundResource(if (on) R.drawable.kb_bg_pill_on else R.drawable.kb_bg_pill_off)
+        polishSwitch?.setImageResource(if (on) R.drawable.kb_switch_on else R.drawable.kb_switch_off)
+        val content = color(context, if (on) R.color.kb_on_tertiary_container else R.color.kb_on_surface_variant)
+        polishLabel?.setTextColor(content)
+        polishIcon?.imageTintList = ColorStateList.valueOf(content)
+        toggle.contentDescription = context.getString(
+            if (on) R.string.polish_toggle_on else R.string.polish_toggle_off
+        )
     }
 
     private fun refreshPolishToggle() {
@@ -521,8 +904,7 @@ class WhisperKeyboard {
                     preferences[POLISH_ENABLED] ?: true
                 }.first()
             } catch (_: Exception) {
-                // Reading failure keeps the default (on); the toggle
-                // still works and will write a fresh value on tap.
+                // Reading failure keeps the default (on).
                 polishEnabled = true
             }
             updatePolishToggleButton()
@@ -533,9 +915,7 @@ class WhisperKeyboard {
         val context = keyboardView?.context ?: return
         // Flip and paint immediately, then persist. The new value only
         // takes effect for the NEXT recording: WhisperTranscriber
-        // snapshots POLISH_ENABLED once, before its STT request, and
-        // never re-reads it mid-run, so this tap cannot cancel or
-        // change a recording / polish already in flight.
+        // snapshots POLISH_ENABLED once, before its STT request.
         val newValue = !polishEnabled
         polishEnabled = newValue
         updatePolishToggleButton()
@@ -553,122 +933,89 @@ class WhisperKeyboard {
         }
     }
 
-    private fun onButtonMicClick() {
-        // Upon button mic click...
-        // Idle -> Start Recording
-        // Recording -> Finish Recording (without a newline)
-        // Transcribing -> Nothing (to avoid double-clicking by mistake, which starts transcribing and then immediately cancels it)
-        when (keyboardStatus) {
-            KeyboardStatus.Idle -> {
-                setKeyboardStatus(KeyboardStatus.Recording)
-                onStartRecording()
-            }
+    private fun languageLabel(context: Context, code: String): String = when (code) {
+        LANGUAGE_AUTO -> context.getString(R.string.kb_lang_auto)
+        LANGUAGE_ZH -> context.getString(R.string.kb_lang_zh)
+        LANGUAGE_EN -> context.getString(R.string.kb_lang_en)
+        else -> code
+    }
 
-            KeyboardStatus.Recording -> {
-                setKeyboardStatus(KeyboardStatus.Transcribing)
-                onStartTranscribing("")
+    private fun refreshLanguage() {
+        val context = keyboardView?.context ?: return
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                languageCode = context.dataStore.data.map { preferences ->
+                    preferences[LANGUAGE_CODE] ?: LANGUAGE_AUTO
+                }.first().ifBlank { LANGUAGE_AUTO }
+            } catch (_: Exception) {
+                languageCode = LANGUAGE_AUTO
             }
+            labelLanguage?.text = languageLabel(context, languageCode)
+        }
+    }
 
-            KeyboardStatus.Transcribing -> {
-                return
+    // Language key: cycles the transcription language setting
+    // (auto -> zh -> en -> auto), the same LANGUAGE_CODE the settings page edits.
+    private fun onLanguageClick() {
+        val context = keyboardView?.context ?: return
+        val next = when (languageCode) {
+            LANGUAGE_AUTO -> LANGUAGE_ZH
+            LANGUAGE_ZH -> LANGUAGE_EN
+            else -> LANGUAGE_AUTO
+        }
+        languageCode = next
+        val label = languageLabel(context, next)
+        labelLanguage?.text = label
+        Toast.makeText(context, context.getString(R.string.kb_toast_language, label), Toast.LENGTH_SHORT).show()
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                context.dataStore.edit { settings ->
+                    settings[LANGUAGE_CODE] = next
+                }
+            } catch (_: Exception) {
+                // Persist failure: the next reset() re-reads the saved value.
             }
         }
     }
 
-    private fun onButtonEnterClick() {
-        // Upon button enter click.
-        // Recording -> Start transcribing (with a newline included)
-        // else -> invokes onEnter
-        if (keyboardStatus == KeyboardStatus.Recording) {
-            setKeyboardStatus(KeyboardStatus.Transcribing)
-            onStartTranscribing("\r\n")
-        } else {
-            onEnter()
+    // =====================================================================
+    // Helpers
+    // =====================================================================
+
+    private fun refreshLastRecord() {
+        try {
+            val context = keyboardView?.context ?: return
+            val record = TranscriptionHistory.loadLast(context)
+            rawResultText = record?.rawText
+            polishedResultText = record?.polishedText
+        } catch (_: Exception) {
+            // Best-effort only; a missing record just shows the default.
         }
     }
 
-    private fun onButtonCancelClick() {
-        // Upon button cancel click.
-        // Recording -> Cancel
-        // Transcribing -> Cancel
-        // else -> nothing
-        if (keyboardStatus == KeyboardStatus.Recording) {
-            setKeyboardStatus(KeyboardStatus.Idle)
-            onCancelRecording()
-        } else if (keyboardStatus == KeyboardStatus.Transcribing) {
-            setKeyboardStatus(KeyboardStatus.Idle)
-            onCancelTranscribing()
+    private fun copyText(text: String?) {
+        if (text.isNullOrEmpty()) return
+        val context = keyboardView?.context ?: return
+        try {
+            val clipboard =
+                context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("transcription", text))
+            Toast.makeText(context, R.string.last_result_copied, Toast.LENGTH_SHORT).show()
+        } catch (_: Exception) {
+            // Copy failure must not crash the keyboard.
         }
     }
 
-    private fun onButtonRetryClick() {
-        // Upon button retry click.
-        // Idle -> Retry
-        // else -> nothing
-        if (keyboardStatus == KeyboardStatus.Idle) {
-            setKeyboardStatus(KeyboardStatus.Transcribing)
-            onStartTranscribing("")
-        }
+    private fun toast(@StringRes message: Int) {
+        val context = keyboardView?.context ?: return
+        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
     }
 
-    private fun setKeyboardStatus(newStatus: KeyboardStatus) {
-        // Assign first: updateCopyButton() reads keyboardStatus.
-        keyboardStatus = newStatus
-        when (newStatus) {
-            KeyboardStatus.Idle -> {
-                // Fork change: show the last result if there is one;
-                // only fall back to the default title when there is none.
-                // Recording / transcribing below still overwrite this
-                // with their status, so a result never covers a status.
-                // (reset() already cleared the pipeline before reaching
-                // here; a cancel click reaching Idle directly also ends
-                // any staged display, since that pipeline is aborted.)
-                pipelineActive = false
-                stagedText = null
-                polishingInFlight = false
-                updateStatusLabelForIdle()
-                buttonMic!!.setImageResource(R.drawable.mic_idle)
-                waitingIcon!!.visibility = View.INVISIBLE
-                buttonCancel!!.visibility = View.INVISIBLE
-                buttonRetry!!.visibility = if (shouldShowRetry()) View.VISIBLE else View.INVISIBLE
-                micRippleContainer!!.visibility = View.GONE
-                keyboardView!!.keepScreenOn = false
-            }
+    private fun color(context: Context, @ColorRes id: Int): Int = ContextCompat.getColor(context, id)
 
-            KeyboardStatus.Recording -> {
-                // A new recording supersedes any staged display: the
-                // status text replaces the raw line, and the polished
-                // line is hidden until a new raw text arrives, so no
-                // stale result from the previous segment is shown.
-                pipelineActive = false
-                stagedText = null
-                polishingInFlight = false
-                labelPolished?.visibility = View.GONE
-                labelStatus!!.setText(R.string.recording)
-                buttonMic!!.setImageResource(R.drawable.mic_pressed)
-                waitingIcon!!.visibility = View.INVISIBLE
-                buttonCancel!!.visibility = View.VISIBLE
-                buttonRetry!!.visibility = View.INVISIBLE
-                micRippleContainer!!.visibility = View.VISIBLE
-                keyboardView!!.keepScreenOn = true
-            }
+    private fun tint(context: Context, @ColorRes id: Int): ColorStateList =
+        ColorStateList.valueOf(color(context, id))
 
-            KeyboardStatus.Transcribing -> {
-                // Plain transcribing (before the RAW stage callback):
-                // status text only, polished line hidden. The RAW
-                // stage callback re-enables the pipeline and restores
-                // the two-line display for the new segment.
-                labelPolished?.visibility = View.GONE
-                labelStatus!!.setText(R.string.transcribing)
-                buttonMic!!.setImageResource(R.drawable.mic_transcribing)
-                waitingIcon!!.visibility = View.VISIBLE
-                buttonCancel!!.visibility = View.VISIBLE
-                buttonRetry!!.visibility = View.INVISIBLE
-                micRippleContainer!!.visibility = View.GONE
-                keyboardView!!.keepScreenOn = true
-            }
-        }
-
-        updateCopyButton()
-    }
+    private fun formatTimer(totalSeconds: Int): String =
+        "%d:%02d".format(totalSeconds / 60, totalSeconds % 60)
 }

@@ -19,334 +19,707 @@
     along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 -->
-<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
-    style="@style/Background"
+<!-- Fork6 keyboard redesign (see CHANGES.md). Fixed 280dp panel:
+     top row (48) / middle area (the rest) / bottom action row (52).
+     Which parts of the middle area and which top-row / bottom-row
+     variants are shown is decided in one place, WhisperKeyboard.render(),
+     from a single UiState (Idle / Recording / Processing / Result). -->
+<!-- The input-method framework ignores the root view's own layout_height
+     (it re-adds the view as wrap_content), so the fixed 280dp lives on the
+     inner LinearLayout, whose params survive inflation. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/keyboard_view"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_alignParentBottom="true"
-    android:layout_gravity="bottom"
+    android:background="@color/kb_background"
+    android:clipChildren="false"
+    android:clipToPadding="false">
+
+<LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="280dp"
+    android:clipChildren="false"
     android:clipToPadding="false"
-    android:paddingBottom="10dp">
+    android:orientation="vertical"
+    android:paddingStart="8dp"
+    android:paddingTop="6dp"
+    android:paddingEnd="8dp"
+    android:paddingBottom="8dp">
 
-    <View
-        style="@style/TopBar"
-        android:id="@+id/view_top_bar"
-        android:layout_width="wrap_content"
-        android:layout_height="10dp"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
-
-    <!-- Fork change: one top row, one vertical centre line.
-         Switch key, status / last-result text and settings gear are all
-         48dp tall and centred vertically inside this 48dp row, so they
-         can no longer drift apart with different top/bottom constraints.
-         The text takes the space between the two buttons and stays
-         centred; it is capped at 3 lines with an ellipsis. -->
-    <androidx.constraintlayout.widget.ConstraintLayout
+    <!-- Top row, 48dp: preview chip | AI polish pill | settings -->
+    <LinearLayout
         android:id="@+id/top_row"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:minHeight="48dp"
-        android:layout_marginTop="8dp"
-        android:layout_marginBottom="10dp"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/view_top_bar">
+        android:layout_height="48dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
 
-        <ImageButton
-            style="@style/RegularImage"
-            android:id="@+id/btn_previous_ime"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_marginStart="16dp"
-            android:backgroundTint="#00000000"
-            android:contentDescription="@string/btn_previous_ime_hint"
-            android:scaleType="fitCenter"
-            android:src="@drawable/btn_previous_ime"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="parent" />
-
-        <!-- Fork change (fork4): two result lines shown at the same
-             time, instead of one label that only ever shows one stage.
-             Top line (label_status, kept id): the raw STT text, dimmer
-             and smaller, prefixed with "原文：". Bottom line
-             (label_polished, gone when there is no polished text):
-             the polished text that was actually inserted, normal size,
-             prefixed with "潤飾後：". Both are capped at 3 lines with
-             an ellipsis, so a long pair cannot stretch the panel
-             without bound. The container is vertically centred in the
-             top row like the old single label was, and the mic frame
-             below is constrained to the bottom of top_row, so it
-             simply moves down a little when the second line appears. -->
         <LinearLayout
-            android:id="@+id/result_texts"
+            android:id="@+id/preview_chip"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:gravity="center"
-            android:orientation="vertical"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintEnd_toStartOf="@+id/btn_polish_toggle"
-            app:layout_constraintStart_toEndOf="@+id/btn_previous_ime"
-            app:layout_constraintTop_toTopOf="parent">
+            android:layout_height="36dp"
+            android:layout_weight="1"
+            android:background="@drawable/kb_bg_chip"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="12dp"
+            android:paddingEnd="6dp">
 
             <TextView
-                style="@style/RegularText"
-                android:id="@+id/label_status"
-                android:layout_width="match_parent"
+                android:id="@+id/preview_tag"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:alpha="0.65"
-                android:ellipsize="end"
-                android:gravity="center"
-                android:maxLines="3"
-                android:text="@string/whisper_to_input"
-                android:textAlignment="center"
-                android:textSize="13sp"
+                android:background="@drawable/kb_bg_label"
+                android:paddingStart="6dp"
+                android:paddingTop="2dp"
+                android:paddingEnd="6dp"
+                android:paddingBottom="2dp"
+                android:text="@string/kb_tag_last"
+                android:textColor="@color/kb_on_surface_variant"
+                android:textSize="11sp"
                 android:textStyle="bold" />
 
+            <View
+                android:id="@+id/recording_dot"
+                android:layout_width="8dp"
+                android:layout_height="8dp"
+                android:background="@drawable/kb_bg_recording_dot"
+                android:visibility="gone" />
+
             <TextView
-                style="@style/RegularText"
-                android:id="@+id/label_polished"
-                android:layout_width="match_parent"
+                android:id="@+id/preview_text"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
                 android:ellipsize="end"
-                android:gravity="center"
-                android:maxLines="3"
-                android:textAlignment="center"
-                android:textSize="15sp"
+                android:maxLines="1"
+                android:textColor="@color/kb_on_surface"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/preview_timer"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_marginEnd="6dp"
+                android:text="@string/kb_timer_zero"
+                android:textColor="@color/kb_recording"
+                android:textSize="14sp"
                 android:textStyle="bold"
                 android:visibility="gone" />
 
+            <ImageButton
+                android:id="@+id/btn_preview_insert"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/kb_bg_insert_small"
+                android:contentDescription="@string/kb_action_insert"
+                android:padding="6dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/kb_ic_insert"
+                android:tint="@color/kb_on_primary_container" />
         </LinearLayout>
 
-        <!-- Fork change (fork3): on-keyboard polish toggle, between the
-             status text and the settings gear. Same 48dp height and
-             vertical centre line as the rest of the top row; the
-             settings gear and switch key keep their positions, the
-             mic stays centred, only the status text gets 48dp narrower. -->
-        <ImageButton
-            style="@style/RegularImage"
+        <LinearLayout
             android:id="@+id/btn_polish_toggle"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:backgroundTint="#00000000"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/kb_bg_pill_on"
+            android:clickable="true"
             android:contentDescription="@string/polish_toggle_hint"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_polish"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintEnd_toStartOf="@+id/btn_settings"
-            app:layout_constraintTop_toTopOf="parent" />
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="12dp"
+            android:paddingEnd="10dp">
+
+            <ImageView
+                android:id="@+id/polish_icon"
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:importantForAccessibility="no"
+                android:src="@drawable/kb_ic_sparkle"
+                android:tint="@color/kb_on_tertiary_container" />
+
+            <TextView
+                android:id="@+id/polish_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:text="@string/kb_pill_ai"
+                android:textColor="@color/kb_on_tertiary_container"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <ImageView
+                android:id="@+id/polish_switch"
+                android:layout_width="26dp"
+                android:layout_height="16dp"
+                android:layout_marginStart="6dp"
+                android:importantForAccessibility="no"
+                android:src="@drawable/kb_switch_on" />
+        </LinearLayout>
 
         <ImageButton
-            style="@style/RegularImage"
             android:id="@+id/btn_settings"
             android:layout_width="48dp"
             android:layout_height="48dp"
-            android:layout_marginEnd="16dp"
-            android:backgroundTint="#00000000"
-            android:contentDescription="@string/btn_previous_ime_hint"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/kb_settings"
+            android:padding="13dp"
             android:scaleType="fitCenter"
-            android:src="@drawable/btn_settings"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintTop_toTopOf="parent" />
+            android:src="@drawable/kb_ic_settings"
+            android:tint="@color/kb_on_surface_variant" />
+    </LinearLayout>
 
-    </androidx.constraintlayout.widget.ConstraintLayout>
-
-    <ImageButton
-        style="@style/RegularImage"
-        android:id="@+id/btn_space_bar"
-        android:layout_width="123dp"
-        android:layout_height="35dp"
-        android:background="#00FFFFFF"
-        android:contentDescription="@string/desc_space_bar"
-        android:scaleType="fitCenter"
-        android:src="@drawable/btn_space_bar"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/btn_mic_frame"/>
-
+    <!-- Middle area: either the main (mic) group or the result card. -->
     <FrameLayout
-        android:id="@+id/btn_mic_frame"
-        android:layout_width="140dp"
-        android:layout_height="140dp"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/top_row">
+        android:id="@+id/middle_area"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipChildren="false"
+        android:clipToPadding="false">
 
-
-
-
-        <ImageButton
-            android:id="@+id/btn_mic"
-            android:layout_width="100dp"
-            android:layout_height="100dp"
-            android:layout_gravity="center_horizontal|center_vertical"
-            android:background="#00FFFFFF"
-            android:contentDescription="@string/start_speech_to_text"
-            android:scaleType="fitCenter"
-            android:src="@drawable/mic_idle" />
-
-        <ProgressBar
-            android:id="@+id/pb_waiting_icon"
-            style="?android:attr/progressBarStyle"
-            android:layout_width="80dp"
-            android:layout_height="80dp"
-            android:layout_gravity="center_horizontal|center_vertical"
-            android:layout_margin="10dp"
-            android:clickable="false"
-            android:focusable="false"
-            android:visibility="invisible" />
-
-        <androidx.constraintlayout.widget.ConstraintLayout
-            android:id="@+id/mic_ripples"
+        <LinearLayout
+            android:id="@+id/group_main"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:visibility="invisible">
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:orientation="vertical">
 
-            <ImageView
-                android:id="@+id/mic_ripple_0"
-                android:layout_width="107dp"
-                android:layout_height="107dp"
-                android:alpha="0"
-                android:src="@drawable/mic_ripple_0"
-                app:layout_constraintBottom_toBottomOf="parent"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toTopOf="parent" />
+            <LinearLayout
+                android:id="@+id/mic_row"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:clipChildren="false"
+                android:clipToPadding="false"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
-            <ImageView
-                android:id="@+id/mic_ripple_1"
-                android:layout_width="115dp"
-                android:layout_height="115dp"
-                android:alpha="0"
-                android:src="@drawable/mic_ripple_1"
-                app:layout_constraintBottom_toBottomOf="parent"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toTopOf="parent" />
+                <FrameLayout
+                    android:id="@+id/left_slot"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:clipChildren="false">
 
-            <ImageView
-                android:id="@+id/mic_ripple_2"
-                android:layout_width="123dp"
-                android:layout_height="123dp"
-                android:alpha="0"
-                android:src="@drawable/mic_ripple_2"
-                app:layout_constraintBottom_toBottomOf="parent"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toTopOf="parent" />
+                    <LinearLayout
+                        android:id="@+id/key_language_col"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        android:gravity="center_horizontal"
+                        android:orientation="vertical">
 
-            <ImageView
-                android:id="@+id/mic_ripple_3"
-                android:layout_width="131dp"
-                android:layout_height="131dp"
-                android:alpha="0"
-                android:src="@drawable/mic_ripple_3"
-                app:layout_constraintBottom_toBottomOf="parent"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toTopOf="parent" />
+                        <ImageButton
+                            android:id="@+id/btn_language"
+                            android:layout_width="48dp"
+                            android:layout_height="48dp"
+                            android:background="@drawable/kb_bg_secondary_key"
+                            android:contentDescription="@string/kb_language"
+                            android:padding="13dp"
+                            android:scaleType="fitCenter"
+                            android:src="@drawable/kb_ic_translate"
+                            android:tint="@color/kb_on_surface" />
 
-        </androidx.constraintlayout.widget.ConstraintLayout>
+                        <TextView
+                            android:id="@+id/label_language"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="@string/kb_lang_auto"
+                            android:textColor="@color/kb_on_surface_variant"
+                            android:textSize="11sp" />
+                    </LinearLayout>
 
+                    <com.example.whispertoinput.keyboard.WaveformView
+                        android:id="@+id/wave_left"
+                        android:layout_width="84dp"
+                        android:layout_height="56dp"
+                        android:layout_gravity="end|center_vertical"
+                        android:layout_marginEnd="4dp"
+                        android:visibility="gone" />
+                </FrameLayout>
 
+                <FrameLayout
+                    android:id="@+id/mic_frame"
+                    android:layout_width="132dp"
+                    android:layout_height="132dp"
+                    android:clipChildren="false"
+                    android:clipToPadding="false">
+
+                    <com.example.whispertoinput.keyboard.PulseRingView
+                        android:id="@+id/pulse_rings"
+                        android:layout_width="140dp"
+                        android:layout_height="140dp"
+                        android:layout_gravity="center"
+                        android:visibility="gone" />
+
+                    <com.example.whispertoinput.keyboard.SpinnerRingView
+                        android:id="@+id/spinner_ring"
+                        android:layout_width="124dp"
+                        android:layout_height="124dp"
+                        android:layout_gravity="center"
+                        android:visibility="gone" />
+
+                    <ImageButton
+                        android:id="@+id/btn_mic"
+                        android:layout_width="96dp"
+                        android:layout_height="96dp"
+                        android:layout_gravity="center"
+                        android:background="@drawable/kb_bg_mic_idle"
+                        android:contentDescription="@string/start_speech_to_text"
+                        android:elevation="3dp"
+                        android:padding="26dp"
+                        android:scaleType="fitCenter"
+                        android:src="@drawable/kb_ic_mic"
+                        android:tint="@color/kb_on_primary" />
+                </FrameLayout>
+
+                <FrameLayout
+                    android:id="@+id/right_slot"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:clipChildren="false">
+
+                    <LinearLayout
+                        android:id="@+id/key_history_col"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        android:gravity="center_horizontal"
+                        android:orientation="vertical">
+
+                        <ImageButton
+                            android:id="@+id/btn_history"
+                            android:layout_width="48dp"
+                            android:layout_height="48dp"
+                            android:background="@drawable/kb_bg_secondary_key"
+                            android:contentDescription="@string/kb_history"
+                            android:padding="13dp"
+                            android:scaleType="fitCenter"
+                            android:src="@drawable/kb_ic_history"
+                            android:tint="@color/kb_on_surface" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="@string/kb_history"
+                            android:textColor="@color/kb_on_surface_variant"
+                            android:textSize="11sp" />
+                    </LinearLayout>
+
+                    <com.example.whispertoinput.keyboard.WaveformView
+                        android:id="@+id/wave_right"
+                        android:layout_width="84dp"
+                        android:layout_height="56dp"
+                        android:layout_gravity="start|center_vertical"
+                        android:layout_marginStart="4dp"
+                        android:visibility="gone" />
+                </FrameLayout>
+            </LinearLayout>
+
+            <!-- Hint line (idle / recording), step chips (processing)
+                 and the retry chip share this 24dp row. -->
+            <LinearLayout
+                android:id="@+id/hint_row"
+                android:layout_width="match_parent"
+                android:layout_height="24dp"
+                android:gravity="center"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/label_hint"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/kb_hint_idle"
+                    android:textColor="@color/kb_on_surface_variant"
+                    android:textSize="12sp" />
+
+                <LinearLayout
+                    android:id="@+id/steps_container"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:orientation="horizontal"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:id="@+id/step_record"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/kb_bg_step_chip"
+                        android:paddingStart="8dp"
+                        android:paddingTop="3dp"
+                        android:paddingEnd="8dp"
+                        android:paddingBottom="3dp"
+                        android:text="@string/kb_step_record_done"
+                        android:textColor="@color/kb_on_surface_variant"
+                        android:textSize="11sp" />
+
+                    <TextView
+                        android:id="@+id/step_transcribe"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:background="@drawable/kb_bg_step_chip"
+                        android:paddingStart="8dp"
+                        android:paddingTop="3dp"
+                        android:paddingEnd="8dp"
+                        android:paddingBottom="3dp"
+                        android:text="@string/kb_step_transcribing"
+                        android:textColor="@color/kb_on_surface_variant"
+                        android:textSize="11sp" />
+
+                    <TextView
+                        android:id="@+id/step_polish"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:background="@drawable/kb_bg_step_chip"
+                        android:paddingStart="8dp"
+                        android:paddingTop="3dp"
+                        android:paddingEnd="8dp"
+                        android:paddingBottom="3dp"
+                        android:text="@string/kb_step_polish"
+                        android:textColor="@color/kb_on_surface_variant"
+                        android:textSize="11sp" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/btn_retry"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:background="@drawable/kb_bg_retry_chip"
+                    android:clickable="true"
+                    android:contentDescription="@string/kb_retry"
+                    android:focusable="true"
+                    android:paddingStart="10dp"
+                    android:paddingTop="3dp"
+                    android:paddingEnd="10dp"
+                    android:paddingBottom="3dp"
+                    android:text="@string/kb_retry"
+                    android:textColor="@color/kb_on_surface"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:visibility="gone" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Result card: raw (grey, struck through when a polished
+             version exists) above AI polish (bold), plus four actions. -->
+        <LinearLayout
+            android:id="@+id/group_result"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_marginTop="2dp"
+            android:background="@drawable/kb_bg_card"
+            android:orientation="vertical"
+            android:paddingStart="12dp"
+            android:paddingTop="10dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="10dp"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:id="@+id/row_raw"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="62dp"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/kb_bg_label"
+                    android:gravity="center"
+                    android:paddingTop="3dp"
+                    android:paddingBottom="3dp"
+                    android:text="@string/kb_label_raw"
+                    android:textColor="@color/kb_on_surface_variant"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/text_raw"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:lineSpacingExtra="2dp"
+                    android:maxLines="2"
+                    android:textColor="@color/kb_on_surface_variant"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/row_ai"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="62dp"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/kb_bg_label_ai"
+                    android:gravity="center"
+                    android:paddingTop="3dp"
+                    android:paddingBottom="3dp"
+                    android:text="@string/kb_label_ai"
+                    android:textColor="@color/kb_on_tertiary_container"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/text_ai"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:lineSpacingExtra="2dp"
+                    android:maxLines="2"
+                    android:textColor="@color/kb_on_surface"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+            <LinearLayout
+                android:id="@+id/row_actions"
+                android:layout_width="match_parent"
+                android:layout_height="34dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:id="@+id/action_insert"
+                    android:layout_width="wrap_content"
+                    android:layout_height="34dp"
+                    android:background="@drawable/kb_bg_action_primary"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:orientation="horizontal"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="14dp">
+
+                    <ImageView
+                        android:id="@+id/action_insert_icon"
+                        android:layout_width="16dp"
+                        android:layout_height="16dp"
+                        android:importantForAccessibility="no"
+                        android:src="@drawable/kb_ic_insert"
+                        android:tint="@color/kb_on_primary" />
+
+                    <TextView
+                        android:id="@+id/action_insert_label"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="4dp"
+                        android:text="@string/kb_action_insert"
+                        android:textColor="@color/kb_on_primary"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/action_repolish"
+                    android:layout_width="wrap_content"
+                    android:layout_height="34dp"
+                    android:layout_marginStart="6dp"
+                    android:background="@drawable/kb_bg_action_outline"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:orientation="horizontal"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="12dp">
+
+                    <ImageView
+                        android:layout_width="16dp"
+                        android:layout_height="16dp"
+                        android:importantForAccessibility="no"
+                        android:src="@drawable/kb_ic_refresh"
+                        android:tint="@color/kb_on_surface" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="4dp"
+                        android:text="@string/kb_action_repolish"
+                        android:textColor="@color/kb_on_surface"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/action_copy"
+                    android:layout_width="wrap_content"
+                    android:layout_height="34dp"
+                    android:layout_marginStart="6dp"
+                    android:background="@drawable/kb_bg_action_outline"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:orientation="horizontal"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="12dp">
+
+                    <ImageView
+                        android:layout_width="16dp"
+                        android:layout_height="16dp"
+                        android:importantForAccessibility="no"
+                        android:src="@drawable/kb_ic_copy"
+                        android:tint="@color/kb_on_surface" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="4dp"
+                        android:text="@string/kb_action_copy"
+                        android:textColor="@color/kb_on_surface"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/action_undo"
+                    android:layout_width="wrap_content"
+                    android:layout_height="34dp"
+                    android:layout_marginStart="6dp"
+                    android:background="@drawable/kb_bg_action_outline"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:orientation="horizontal"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="12dp">
+
+                    <ImageView
+                        android:id="@+id/action_undo_icon"
+                        android:layout_width="16dp"
+                        android:layout_height="16dp"
+                        android:importantForAccessibility="no"
+                        android:src="@drawable/kb_ic_undo"
+                        android:tint="@color/kb_on_surface" />
+
+                    <TextView
+                        android:id="@+id/action_undo_label"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="4dp"
+                        android:text="@string/kb_action_undo"
+                        android:textColor="@color/kb_on_surface"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
     </FrameLayout>
 
+    <!-- Bottom action row, 52dp, same position in every state:
+         left key (switch IME / cancel / mic) | space | backspace | enter -->
+    <LinearLayout
+        android:id="@+id/bottom_row"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:layout_marginTop="6dp"
+        android:orientation="horizontal">
 
-    <ImageButton
-        style="@style/RegularImage"
-        android:id="@+id/btn_enter"
-        android:layout_width="50dp"
-        android:layout_height="50dp"
-        android:background="#00FFFFFF"
-        android:contentDescription="@string/start_transcribing"
-        android:scaleType="fitCenter"
-        android:src="@drawable/btn_enter"
-        android:translationX="-3dp"
-        app:layout_constraintBottom_toBottomOf="@+id/btn_space_bar"
-        app:layout_constraintEnd_toEndOf="@+id/btn_backspace"
-        app:layout_constraintTop_toTopOf="@+id/btn_space_bar" />
+        <ImageButton
+            android:id="@+id/btn_left_action"
+            android:layout_width="56dp"
+            android:layout_height="match_parent"
+            android:background="@drawable/kb_bg_key_alt"
+            android:contentDescription="@string/btn_previous_ime_hint"
+            android:padding="15dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/kb_ic_keyboard"
+            android:tint="@color/kb_on_surface_variant" />
 
-    <ImageButton
-        style="@style/RegularImage"
-        android:id="@+id/btn_cancel"
-        android:layout_width="50dp"
-        android:layout_height="50dp"
-        android:background="#00FFFFFF"
-        android:contentDescription=""
-        android:scaleType="fitCenter"
-        android:scaleX="0.5"
-        android:scaleY="0.5"
-        android:layout_marginEnd="16dp"
-        android:src="@drawable/btn_cancel"
-        android:visibility="invisible"
-        app:layout_constraintTop_toTopOf="@+id/btn_mic_frame"
-        app:layout_constraintBottom_toBottomOf="@+id/btn_mic_frame"
-        app:layout_constraintEnd_toStartOf="@+id/btn_mic_frame" />
+        <LinearLayout
+            android:id="@+id/btn_space_bar"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginStart="6dp"
+            android:layout_weight="1"
+            android:background="@drawable/kb_bg_key"
+            android:clickable="true"
+            android:contentDescription="@string/desc_space_bar"
+            android:focusable="true"
+            android:gravity="center"
+            android:orientation="horizontal">
 
-    <ImageButton
-        style="@style/RegularImage"
-        android:id="@+id/btn_retry"
-        android:layout_width="50dp"
-        android:layout_height="50dp"
-        android:background="#00FFFFFF"
-        android:contentDescription=""
-        android:scaleType="fitCenter"
-        android:scaleX="0.5"
-        android:scaleY="0.5"
-        android:layout_marginEnd="16dp"
-        android:src="@drawable/btn_retry"
-        android:visibility="invisible"
-        app:layout_constraintTop_toTopOf="@+id/btn_mic_frame"
-        app:layout_constraintBottom_toBottomOf="@+id/btn_mic_frame"
-        app:layout_constraintEnd_toStartOf="@+id/btn_mic_frame" />
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:importantForAccessibility="no"
+                android:src="@drawable/kb_ic_space"
+                android:tint="@color/kb_on_surface_variant" />
 
-    <!-- Fork change: copy-last-result button, mirroring btn_backspace
-         (60x50dp, 16dp from the mic frame, centred on the mic frame).
-         It shares the left slot with cancel / retry, so visibility is
-         decided in WhisperKeyboard.setKeyboardStatus: idle + no retry
-         shows it (faded + disabled when there is no last result yet),
-         recording / transcribing hides it while cancel is shown, and
-         when retry is shown the label tap still copies. -->
-    <ImageButton
-        style="@style/RegularImage"
-        android:id="@+id/btn_copy_last_result"
-        android:layout_width="60dp"
-        android:layout_height="50dp"
-        android:layout_marginEnd="16dp"
-        android:backgroundTint="#00000000"
-        android:contentDescription="@string/copy_last_result_hint"
-        android:paddingStart="10dp"
-        android:paddingTop="5dp"
-        android:paddingEnd="10dp"
-        android:paddingBottom="5dp"
-        android:scaleType="fitCenter"
-        android:src="@drawable/ic_copy"
-        android:visibility="invisible"
-        app:layout_constraintBottom_toBottomOf="@+id/btn_mic_frame"
-        app:layout_constraintEnd_toStartOf="@+id/btn_mic_frame"
-        app:layout_constraintTop_toTopOf="@+id/btn_mic_frame" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:text="@string/kb_space"
+                android:textColor="@color/kb_on_surface_variant"
+                android:textSize="14sp" />
+        </LinearLayout>
 
-    <com.example.whispertoinput.keyboard.BackspaceButton
-        style="@style/RegularImage"
-        android:id="@+id/btn_backspace"
-        android:layout_width="60dp"
-        android:layout_height="50dp"
-        android:layout_marginStart="16dp"
-        android:backgroundTint="#00000000"
-        android:contentDescription="@string/backspace_button_hint"
-        android:paddingStart="10dp"
-        android:paddingTop="5dp"
-        android:paddingEnd="10dp"
-        android:paddingBottom="5dp"
-        android:scaleType="fitCenter"
-        android:src="@drawable/btn_backspace"
-        app:layout_constraintStart_toEndOf="@+id/btn_mic_frame"
-        app:layout_constraintTop_toTopOf="@+id/btn_mic_frame"
-        app:layout_constraintBottom_toBottomOf="@+id/btn_mic_frame"/>
-</androidx.constraintlayout.widget.ConstraintLayout>
+        <FrameLayout
+            android:layout_width="56dp"
+            android:layout_height="match_parent"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/kb_bg_key_alt">
+
+            <com.example.whispertoinput.keyboard.BackspaceButton
+                android:id="@+id/btn_backspace"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@android:color/transparent"
+                android:contentDescription="@string/backspace_button_hint"
+                android:padding="15dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/kb_ic_backspace"
+                android:tint="@color/kb_on_surface" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|end"
+                android:layout_marginTop="3dp"
+                android:layout_marginEnd="6dp"
+                android:text="@string/kb_hold_hint"
+                android:textColor="@color/kb_on_surface_variant"
+                android:textSize="9sp" />
+        </FrameLayout>
+
+        <ImageButton
+            android:id="@+id/btn_enter"
+            android:layout_width="64dp"
+            android:layout_height="match_parent"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/kb_bg_key_container"
+            android:contentDescription="@string/start_transcribing"
+            android:padding="18dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/kb_ic_enter"
+            android:tint="@color/kb_on_primary_container" />
+    </LinearLayout>
+</LinearLayout>
+</FrameLayout>
