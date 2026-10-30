@@ -2,6 +2,57 @@
 
 原專案：j3soon/whisper-to-input（GPL-3.0，作者 Yan-Bin Diau、Johnson Sun 等，見原 LICENSE 與 README）。
 
+## 2026-10-30 fork6 改動（版本 0.4-fork6，versionCode 10）
+
+### 做了兩件事：鍵盤 UI redesign、潤飾 prompt 更新
+設計稿來源：`whisper-input-redesign.zip`（DESIGN_NOTES.md 的 dp 與色票為準，Compose 提示改用 XML View 實作）。沒有動轉寫／潤飾管線、短句門檻（仍是 `POLISH_MIN_LENGTH = 10`）、Groq 預設值、fork5 的生命週期修正。
+
+### 1. 鍵盤 UI redesign
+- 整個面板由一個狀態列舉驅動（`Idle / Recording / Processing / Result`），畫面上哪些元件顯示、顯示什麼，全部集中在 `WhisperKeyboard.render()` 一處決定，沒有散在各處的 visibility 判斷。
+- 版面（`res/layout/keyboard_view.xml`）：面板高 280dp、padding 左右 8／上 6／下 8；頂列 48dp（預覽 chip｜AI 潤飾 pill 開關｜設定）；底列 52dp 在每個狀態位置固定（左鍵｜空白｜退格（角標「長按」）｜Enter）。Android 輸入法框架會忽略根 View 的高度，所以 280dp 是掛在內層 LinearLayout 上。
+- 淺色／深色色票照 DESIGN_NOTES（seed #3B5BDB）：`values/kb_colors.xml`、`values-night/kb_colors.xml`。圖示全部改成 Material Symbols Rounded 風格的 vector drawable（`kb_ic_*`），背景與按鍵形狀為 `kb_bg_*`。
+- 待機：96dp 實心 primary 圓形麥克風，下方提示「點一下開始 · 按住說話」；兩側 48×48 的「語言」「紀錄」鍵取代原本的複製鍵。
+- 錄音中：主鍵變 84dp 紅色停止鍵（28dp 圓角方塊）、兩圈脈動環（+9／+18dp，1.2s）、左右各 12 根波形（每 50ms 更新）、頂列紅底含計時 `0:07`；提示「放開送出 · 點擊停止 · 上滑取消」；左下鍵變「取消 ✕」。自訂 View 在 `keyboard/KeyboardViews.kt`（`WaveformView`、`PulseRingView`、`SpinnerRingView`）。
+- 處理中：主鍵改 primaryContainer 底＋✦，外圈 indeterminate spinner（外擴 6dp、線寬 4dp）；下方步驟 chip 顯示「✓ 錄音　轉寫中…／✓ 轉寫　AI 潤飾中…」，依實際階段更新；潤飾關閉時不列出潤飾步驟。
+- 結果卡：原文（灰、有潤飾版本時加刪除線）與 AI 潤飾（粗體）上下對照，四個動作：插入、重新潤飾、複製、復原；結果狀態時底列左鍵變麥克風。
+- 手勢：點一下＝開始／停止；按住（≥400ms）＝說話、放開送出；錄音中上滑超過 48dp＝取消（放開才取消，提示會變成「放開即取消」）。
+- 退格：按住 400ms 後每 50ms 連刪，按住滿 1.5s 後改為整詞刪除（`BreakIterator`，中文也會斷詞）。
+- 手動／自動錄音、上次結果、空白鍵／Enter 在錄音中帶結尾空白／換行送出、重試上次錄音、切換鍵長按叫出系統輸入法選擇器、鍵盤上的潤飾開關（同一個 `POLISH_ENABLED`）都保留。
+
+### 「語言」「紀錄」鍵實際接到什麼
+- 語言：循環切換設定頁的「Language Code」（`LANGUAGE_CODE`）：auto → zh → en → auto，標籤顯示「自動／中文／English」，並跳出提示。**誠實說明：** 目前轉寫器只把這個值放在 NVIDIA NIM 的表單欄位，以及其他後端的網址參數（`&language=`），預設的 Groq 後端不一定會用到，所以這個鍵在預設設定下是否真的改變辨識語言，本版沒有驗證，也沒有為了它改轉寫請求。
+- 紀錄：顯示上次結果的結果卡（原文／潤飾對照），可再插入、複製、重新潤飾；沒有紀錄時提示「尚無紀錄」。
+
+### 結果卡動作的行為
+- 轉寫完成後文字照舊在潤飾完才一次插入，並進入結果卡；這時「插入」呈灰色（已插入），「復原」可用。
+- 復原：記住這次插入的文字長度，用 `deleteSurroundingText(len, 0)` 刪掉；換 App、鍵盤隱藏後再顯示會清掉這個記錄，所以不會誤刪別處的字。若游標在插入後被移動過，復原仍會刪掉游標前的那段長度，請先確認游標位置。
+- 重新潤飾：對原文再呼叫一次潤飾（不管開關與短句門檻，因為是使用者明確要求），成功後更新上次紀錄與結果卡，不會自動插入；失敗提示「潤飾失敗，保留原文」。若前一次的結果還在輸入框裡，請先按「復原」再按「插入」。
+- 預覽 chip 右側的小「插入」鈕：直接插入上次結果；點預覽文字＝複製上次結果（維持原行為）。
+
+### 2. 潤飾 prompt 更新
+- `DEFAULT_POLISH_PROMPT` 換成新版（與交付文字逐字比對一致），user message 改送 `<原文>` + 文字 + `</原文>`。
+- `unwrap()` 會剝掉模型回傳中殘留的 `<原文>`／`</原文>`（含前後空白），並保留原本的 markdown 圍欄與外層雙引號清理。
+- 舊版 prompt 遷移（`PolishPromptMigration.kt`）：prompt 版本號存在 SharedPreferences（`polish_prompt_version`，目前 2）。已存的 prompt 若是空白、或與 fork5 預設「完全相同」就改成新版預設，只做一次；使用者改過的內容不動。服務啟動與設定頁開啟時都會檢查。
+- 設定頁潤飾 prompt 欄位上方新增「重設為預設」按鈕：先跳確認，確認後覆蓋欄位並立即存成新版預設。設定頁的預設值改成直接用 `DEFAULT_POLISH_PROMPT`（原本重複寫在 `strings.xml` 的字串已移除，只剩一份來源）。
+
+### 與設計稿不同、或這版做不到的地方
+- 預覽 chip 沒有「即時字幕」：目前沒有串流辨識，錄音中只顯示「錄音中…」與計時。
+- 波形用的是 `MediaRecorder.maxAmplitude`（峰值，每 150ms 取一次，其間每 50ms 衰減平滑），不是真正的 RMS。
+- 脈動環放大到 1.1 倍（設計筆記是 1.25），避免外圈超出 280dp 面板。
+- 處理中狀態左下鍵是「取消 ✕」（設計稿畫的是切換鍵盤），因為轉寫中要能取消，這是原本就有的功能。
+- 處理中的預覽 chip 沒有進度條，改顯示目前階段文字／原文。
+- 重試上次錄音的按鈕改成提示列旁的「↻ 重試」小 chip。
+- 舊的 `mic_*.png`、`btn_*.png` 圖檔已不再使用，但沒有刪除。
+
+### 驗證（模擬器 Pixel 類 1080×2400，沒有在實機測）
+- 建置通過；待機、錄音中（計時、波形、脈動環）、結果卡（含刪除線與動作鈕）、淺色與深色模式都有在模擬器上看過截圖；插入與復原實際對輸入框操作過一次。
+- 沒有驗證到：處理中畫面（需要真的 API key 連網）、按住說話／上滑取消手勢（只用單點測過）、重新潤飾、prompt 遷移（只比對過舊版常數與 fork5 內容一致）。請 kevy 實機測這幾項。
+
+### 程式位置
+- 面板狀態與全部畫面邏輯：`keyboard/WhisperKeyboard.kt`（`render()`、`setupMicGesture()`、結果卡動作）；自訂 View：`keyboard/KeyboardViews.kt`；退格：`keyboard/BackspaceButton.kt`。
+- 服務端的插入／復原／整詞刪除／重新潤飾接線：`WhisperInputService.kt`；重新潤飾：`WhisperTranscriber.polishAsync`。
+- prompt：`PolishClient.kt`（`DEFAULT_POLISH_PROMPT`、`LEGACY_POLISH_PROMPT_V1`、`POLISH_PROMPT_VERSION`、`unwrap`）、`PolishPromptMigration.kt`、`MainActivity.kt`＋`res/layout/activity_main.xml`（重設按鈕）。
+
 ## 2026-10-30 fork5 改動（版本 0.4-fork5，versionCode 9）
 
 ### 要解決的問題（kevy 實機回報，精確重現步驟）
