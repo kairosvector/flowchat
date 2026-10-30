@@ -48,6 +48,11 @@
 - 建置通過；待機、錄音中（計時、波形、脈動環）、結果卡（含刪除線與動作鈕）、淺色與深色模式都有在模擬器上看過截圖；插入與復原實際對輸入框操作過一次。
 - 沒有驗證到：處理中畫面（需要真的 API key 連網）、按住說話／上滑取消手勢（只用單點測過）、重新潤飾、prompt 遷移（只比對過舊版常數與 fork5 內容一致）。請 kevy 實機測這幾項。
 
+### 簽章與安裝方式（重要）
+- fork1～fork5 用的 debug keystore（憑證 SHA-256 `45920e60…62bcf4`）已經遺失，沒辦法再簽出同一把簽章。fork6 改用本機 Gradle 內建的 debug keystore（`~/.android/debug.keystore`，alias `androiddebugkey`）簽，release 建置的 `signingConfig` 指向它（`app/build.gradle.kts`）；憑證 SHA-256 為 `81a29dbbc74cc0a59ed17947bfedc52bde166ebb78fea44d1d9442c1bf29b644`。
+- 因為簽章不同，**不能覆蓋安裝 fork5**：請先解除安裝 fork5，再安裝 fork6，App 內的設定會被清掉，要重新填 Groq API key（其他欄位預設已是 Groq，不用重填）。從 fork6 起，之後的版本只要沿用同一把本機 debug keystore 就能直接覆蓋安裝。
+- 上次結果（轉寫紀錄）存在 App 私有儲存，解除安裝後也會一起消失。
+
 ### 程式位置
 - 面板狀態與全部畫面邏輯：`keyboard/WhisperKeyboard.kt`（`render()`、`setupMicGesture()`、結果卡動作）；自訂 View：`keyboard/KeyboardViews.kt`；退格：`keyboard/BackspaceButton.kt`。
 - 服務端的插入／復原／整詞刪除／重新潤飾接線：`WhisperInputService.kt`；重新潤飾：`WhisperTranscriber.polishAsync`。
