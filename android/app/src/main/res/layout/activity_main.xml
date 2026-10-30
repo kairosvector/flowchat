@@ -1,0 +1,287 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+
+    This file is part of Whisper To Input, see <https://github.com/j3soon/whisper-to-input>.
+
+    Copyright (c) 2023-2025 Yan-Bin Diau, Johnson Sun
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful, but
+    WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+-->
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/linearLayout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context=".MainActivity">
+
+    <androidx.constraintlayout.widget.ConstraintLayout
+        style="@style/Background"
+        android:id="@+id/settings_top_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent">
+
+        <TextView
+            style="@style/RegularText"
+            android:id="@+id/settings_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:gravity="bottom"
+            android:text="@string/whisper_to_input_settings_title"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toStartOf="@+id/btn_settings_apply"
+            app:layout_constraintHorizontal_bias="0.0"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent" />
+
+        <Button
+            android:id="@+id/btn_settings_apply"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end"
+            android:layout_weight="1"
+            android:text="@string/settings_btn_apply"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="parent" />
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:padding="24dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/settings_top_bar">
+
+        <LinearLayout
+            android:id="@+id/settings_list"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingBottom="64dp"
+            android:minHeight="100dp"
+            android:orientation="vertical" >
+
+            <!-- Speech to Text Backend -->
+            <TextView
+                android:id="@+id/label_speech_to_text_backend"
+                style="@style/SettingsLabel"
+                android:text="@string/settings_speech_to_text_backend" />
+            <TextView
+                android:id="@+id/description_speech_to_text_backend"
+                style="@style/SettingsDescription"
+                android:text="@string/settings_speech_to_text_backend_desc" />
+            <Spinner
+                android:id="@+id/spinner_speech_to_text_backend"
+                style="@style/SettingsSpinner"
+                android:entries="@array/settings_speech_to_text_backend_array" />
+
+            <!-- Endpoint -->
+            <TextView
+                android:id="@+id/label_endpoint"
+                style="@style/SettingsLabel"
+                android:text="@string/settings_endpoint" />
+            <TextView
+                android:id="@+id/description_endpoint"
+                style="@style/SettingsDescription"
+                android:text="@string/settings_endpoint_desc" />
+            <EditText
+                android:id="@+id/field_endpoint"
+                style="@style/SettingsField"
+                android:hint="@string/settings_endpoint_hint" />
+
+            <!-- API Key -->
+            <TextView
+                android:id="@+id/label_api_key"
+                style="@style/SettingsLabel"
+                android:text="@string/settings_api_key" />
+            <TextView
+                android:id="@+id/description_api_key"
+                style="@style/SettingsDescription"
+                android:text="@string/settings_api_key_desc" />
+            <EditText
+                android:id="@+id/field_api_key"
+                style="@style/SettingsField"
+                android:hint="@string/settings_api_key_hint" />
+
+            <!-- Model -->
+            <TextView
+                android:id="@+id/label_model"
+                style="@style/SettingsLabel"
+                android:text="@string/settings_model" />
+            <TextView
+                android:id="@+id/description_model"
+                style="@style/SettingsDescription"
+                android:text="@string/settings_model_desc" />
+            <EditText
+                android:id="@+id/field_model"
+                style="@style/SettingsField"
+                android:hint="@string/settings_model_hint" />
+
+            <!-- Language Code -->
+            <TextView
+                android:id="@+id/label_language_code"
+                style="@style/SettingsLabel"
+                android:text="@string/settings_language_code" />
+            <TextView
+                android:id="@+id/description_language_code"
+                style="@style/SettingsDescription"
+                android:text="@string/settings_language_code_desc" />
+            <EditText
+                android:id="@+id/field_language_code"
+                style="@style/SettingsField"
+                android:hint="@string/settings_language_code_hint" />
+
+            <!-- Auto Recording Start -->
+            <TextView
+                android:id="@+id/label_auto_recording_start"
+                style="@style/SettingsLabel"
+                android:text="@string/settings_auto_recording_start" />
+            <TextView
+                android:id="@+id/description_auto_recording_start"
+                style="@style/SettingsDescription"
+                android:text="@string/settings_auto_recording_start_desc" />
+            <Spinner
+                android:id="@+id/spinner_auto_recording_start"
+                style="@style/SettingsSpinner"
+                android:entries="@array/settings_auto_recording_start_array" />
+
+            <!-- Auto Switch Back -->
+            <TextView
+                android:id="@+id/label_auto_switch_back"
+                style="@style/SettingsLabel"
+                android:text="@string/settings_auto_switch_back" />
+            <TextView
+                android:id="@+id/description_auto_switch_back"
+                style="@style/SettingsDescription"
+                android:text="@string/settings_auto_switch_back_desc" />
+            <Spinner
+                android:id="@+id/spinner_auto_switch_back"
+                style="@style/SettingsSpinner"
+                android:entries="@array/settings_auto_switch_back_array" />
+
+            <!-- Postprocessing -->
+            <TextView
+                android:id="@+id/label_postprocessing"
+                style="@style/SettingsLabel"
+                android:text="@string/settings_postprocessing" />
+            <TextView
+                android:id="@+id/description_postprocessing"
+                style="@style/SettingsDescription"
+                android:text="@string/settings_postprocessing_desc" />
+            <Spinner
+                android:id="@+id/spinner_postprocessing"
+                style="@style/SettingsSpinner"
+                android:entries="@array/settings_postprocessing_array" />
+
+            <!-- Add Trailing Space -->
+            <TextView
+                android:id="@+id/label_add_trailing_space"
+                style="@style/SettingsLabel"
+                android:text="@string/settings_add_trailing_space" />
+            <TextView
+                android:id="@+id/description_add_trailing_space"
+                style="@style/SettingsDescription"
+                android:text="@string/settings_add_trailing_space_desc" />
+            <Spinner
+                android:id="@+id/spinner_add_trailing_space"
+                style="@style/SettingsSpinner"
+                android:entries="@array/settings_add_trailing_space_array" />
+
+            <!-- LLM Polish (fork2) -->
+            <TextView
+                android:id="@+id/label_polish_enabled"
+                style="@style/SettingsLabel"
+                android:text="@string/settings_polish_enabled" />
+            <TextView
+                android:id="@+id/description_polish_enabled"
+                style="@style/SettingsDescription"
+                android:text="@string/settings_polish_enabled_desc" />
+            <Spinner
+                android:id="@+id/spinner_polish_enabled"
+                style="@style/SettingsSpinner"
+                android:entries="@array/settings_auto_recording_start_array" />
+
+            <TextView
+                android:id="@+id/label_llm_endpoint"
+                style="@style/SettingsLabel"
+                android:text="@string/settings_llm_endpoint" />
+            <TextView
+                android:id="@+id/description_llm_endpoint"
+                style="@style/SettingsDescription"
+                android:text="@string/settings_llm_endpoint_desc" />
+            <EditText
+                android:id="@+id/field_llm_endpoint"
+                style="@style/SettingsField"
+                android:hint="@string/settings_llm_endpoint_hint" />
+
+            <TextView
+                android:id="@+id/label_llm_model"
+                style="@style/SettingsLabel"
+                android:text="@string/settings_llm_model" />
+            <TextView
+                android:id="@+id/description_llm_model"
+                style="@style/SettingsDescription"
+                android:text="@string/settings_llm_model_desc" />
+            <EditText
+                android:id="@+id/field_llm_model"
+                style="@style/SettingsField"
+                android:hint="@string/settings_llm_model_hint" />
+
+            <TextView
+                android:id="@+id/label_llm_api_key"
+                style="@style/SettingsLabel"
+                android:text="@string/settings_llm_api_key" />
+            <TextView
+                android:id="@+id/description_llm_api_key"
+                style="@style/SettingsDescription"
+                android:text="@string/settings_llm_api_key_desc" />
+            <EditText
+                android:id="@+id/field_llm_api_key"
+                style="@style/SettingsField"
+                android:hint="@string/settings_llm_api_key_hint" />
+
+            <TextView
+                android:id="@+id/label_llm_prompt"
+                style="@style/SettingsLabel"
+                android:text="@string/settings_llm_prompt" />
+            <TextView
+                android:id="@+id/description_llm_prompt"
+                style="@style/SettingsDescription"
+                android:text="@string/settings_llm_prompt_desc" />
+            <EditText
+                android:id="@+id/field_llm_prompt"
+                style="@style/SettingsField"
+                android:gravity="top"
+                android:hint="@string/settings_llm_prompt_hint"
+                android:inputType="textMultiLine"
+                android:minLines="4" />
+
+        </LinearLayout>
+    </ScrollView>
+
+
+</androidx.constraintlayout.widget.ConstraintLayout>

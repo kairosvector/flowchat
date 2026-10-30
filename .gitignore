@@ -1,0 +1,29 @@
+# Agent handoff (never commit)
+.agent/
+
+# Gradle / build output
+.gradle/
+build/
+/android/build/
+/android/app/build/
+
+# Local configuration
+local.properties
+
+# Signing material
+*.keystore
+*.jks
+
+# Built artifacts
+*.apk
+*.aab
+
+# IDE / OS
+.idea/
+*.iml
+.DS_Store
+*.log
+*.hprof
+.cxx/
+.externalNativeBuild/
+captures/

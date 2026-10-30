@@ -1,0 +1,53 @@
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+}
+
+android {
+    namespace = "com.example.whispertoinput"
+    compileSdk = 34
+    // Fork build-only: AGP 8.1.2 defaults to build-tools 33.0.1, which
+    // is not in this SDK; 34.0.0 is installed and changes no app behavior.
+    buildToolsVersion = "34.0.0"
+
+    defaultConfig {
+        applicationId = "com.example.whispertoinput"
+        minSdk = 24
+        targetSdk = 34
+        // Fork: bumped so this build is distinguishable from upstream v0.4.
+        versionCode = 9
+        versionName = "0.4-fork5"
+
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
+    }
+    kotlinOptions {
+        jvmTarget = "1.8"
+    }
+}
+
+dependencies {
+    implementation("io.ktor:ktor-client-okhttp:2.3.6")
+    implementation("androidx.core:core-ktx:1.9.0")
+    implementation("androidx.appcompat:appcompat:1.6.1")
+    implementation("com.google.android.material:material:1.10.0")
+    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
+    implementation("androidx.datastore:datastore-preferences:1.0.0")
+    testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test.ext:junit:1.1.5")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
+    implementation("com.github.liuyueyi:quick-transfer-core:0.2.13")
+}
