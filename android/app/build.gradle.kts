@@ -23,6 +23,11 @@ android {
 
     buildTypes {
         release {
+            // Fork6: sign release builds with Gradle's built-in debug
+            // keystore (~/.android/debug.keystore, alias androiddebugkey).
+            // The keystore that signed fork1-5 is gone, so fork6 is signed
+            // by this machine's debug key; no secrets live in the repo.
+            signingConfig = signingConfigs.getByName("debug")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
