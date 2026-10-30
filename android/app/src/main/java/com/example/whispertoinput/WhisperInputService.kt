@@ -121,6 +121,11 @@ class WhisperInputService : InputMethodService() {
             onUpdateMicrophoneAmplitude(amplitude)
         }
         recorderManager = rm
+        // Fork6: one-time move of an untouched fork5 default prompt to
+        // the new default (see PolishPromptMigration); runs once.
+        CoroutineScope(Dispatchers.IO).launch {
+            PolishPromptMigration.runIfNeeded(this@WhisperInputService)
+        }
         CoroutineScope(Dispatchers.Default).launch {
             try {
                 ChineseUtils.preLoad(true, TransType.SIMPLE_TO_TAIWAN)

@@ -272,6 +272,11 @@
                 android:id="@+id/description_llm_prompt"
                 style="@style/SettingsDescription"
                 android:text="@string/settings_llm_prompt_desc" />
+            <Button
+                android:id="@+id/btn_llm_prompt_reset"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/settings_llm_prompt_reset" />
             <EditText
                 android:id="@+id/field_llm_prompt"
                 style="@style/SettingsField"

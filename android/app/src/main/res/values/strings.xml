@@ -122,6 +122,52 @@
     <string name="settings_llm_prompt">LLM Polish Prompt</string>
     <string name="settings_llm_prompt_desc">System prompt used for polishing. Edit it to change how transcripts are cleaned up.</string>
     <string name="settings_llm_prompt_hint">Polish prompt</string>
-    <string name="settings_llm_prompt_default">你是文字編輯，只輸出整理後的成品，不要加任何解釋、前言或引號。規則：刪除贅字（嗯、呃、那個、就是說），修正文法、補上標點；講者自我修正時只保留最後版本，例如『約明天下午、不對、是後天』只留『後天』；全文必須是繁體中文，絕對不要輸出簡體字，逐字稿是簡體也要轉成繁體；數字、英文術語保持原樣；不要擴寫、不要腦補、不要改變原意；非中文內容保持原語言，不要硬翻成中文。</string>
+
+    <!-- Fork6: prompt reset button on the settings page -->
+    <string name="settings_llm_prompt_reset">重設為預設</string>
+    <string name="settings_llm_prompt_reset_title">重設潤飾 prompt？</string>
+    <string name="settings_llm_prompt_reset_message">這會用新版預設 prompt 覆蓋目前的內容，並立即儲存。</string>
+    <string name="settings_llm_prompt_reset_confirm">重設</string>
+    <string name="settings_llm_prompt_reset_cancel">取消</string>
+
+    <!-- Fork6: redesigned keyboard -->
+    <string name="kb_tag_last">上次</string>
+    <string name="kb_tag_processing">處理中</string>
+    <string name="kb_tag_done">已完成</string>
+    <string name="kb_no_last_result">尚無上次結果</string>
+    <string name="kb_recording_label">錄音中…</string>
+    <string name="kb_timer_zero">0:00</string>
+    <string name="kb_pill_ai">AI 潤飾</string>
+    <string name="kb_settings">設定</string>
+    <string name="kb_language">語言</string>
+    <string name="kb_history">紀錄</string>
+    <string name="kb_lang_auto">自動</string>
+    <string name="kb_lang_zh">中文</string>
+    <string name="kb_lang_en">English</string>
+    <string name="kb_toast_language">轉寫語言：%1$s</string>
+    <string name="kb_toast_no_history">尚無紀錄</string>
+    <string name="kb_hint_idle">點一下開始 · 按住說話</string>
+    <string name="kb_hint_recording">放開送出 · 點擊停止 · 上滑取消</string>
+    <string name="kb_hint_cancel_armed">放開即取消</string>
+    <string name="kb_step_record_done">✓ 錄音</string>
+    <string name="kb_step_transcribing">轉寫中…</string>
+    <string name="kb_step_transcribe_done">✓ 轉寫</string>
+    <string name="kb_step_polish">AI 潤飾</string>
+    <string name="kb_step_polishing">AI 潤飾中…</string>
+    <string name="kb_retry">↻ 重試</string>
+    <string name="kb_space">空白</string>
+    <string name="kb_hold_hint">長按</string>
+    <string name="kb_cancel">取消</string>
+    <string name="kb_result_hint_insert">點下方按鈕插入文字</string>
+    <string name="kb_result_hint_inserted">已插入，可復原或重新潤飾</string>
+    <string name="kb_label_raw">原文</string>
+    <string name="kb_label_ai">AI 潤飾</string>
+    <string name="kb_action_insert">插入</string>
+    <string name="kb_action_repolish">重新潤飾</string>
+    <string name="kb_action_copy">複製</string>
+    <string name="kb_action_undo">復原</string>
+    <string name="kb_toast_undone">已復原</string>
+    <string name="kb_toast_repolish_failed">潤飾失敗，保留原文</string>
+    <string name="kb_switch_ime_picker_hint">長按選擇輸入法</string>
 
 </resources>

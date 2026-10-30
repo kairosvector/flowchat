@@ -19,6 +19,7 @@
 
 package com.example.whispertoinput
 
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import androidx.core.app.ActivityCompat
@@ -320,10 +321,36 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // Fork6: "reset to default" next to the polish prompt field. Asks for
+    // confirmation, then overwrites the field AND the saved value with the
+    // current default prompt, so it also takes effect without pressing Apply.
+    private fun setupPromptResetButton() {
+        findViewById<Button>(R.id.btn_llm_prompt_reset).setOnClickListener {
+            AlertDialog.Builder(this)
+                .setTitle(R.string.settings_llm_prompt_reset_title)
+                .setMessage(R.string.settings_llm_prompt_reset_message)
+                .setPositiveButton(R.string.settings_llm_prompt_reset_confirm) { _, _ ->
+                    findViewById<EditText>(R.id.field_llm_prompt).setText(DEFAULT_POLISH_PROMPT)
+                    CoroutineScope(Dispatchers.Main).launch {
+                        dataStore.edit { settings ->
+                            settings[LLM_PROMPT] = DEFAULT_POLISH_PROMPT
+                        }
+                    }
+                    Toast.makeText(this, R.string.successfully_set, Toast.LENGTH_SHORT).show()
+                }
+                .setNegativeButton(R.string.settings_llm_prompt_reset_cancel, null)
+                .show()
+        }
+    }
+
     private fun setupSettingItems() {
         setupSettingItemsDone = false
+        setupPromptResetButton()
         // Add setting items here to apply functions to them
         CoroutineScope(Dispatchers.Main).launch {
+            // Fork6: move an untouched fork5 default prompt to the new
+            // default before the settings page reads it (runs once).
+            PolishPromptMigration.runIfNeeded(this@MainActivity)
             val settingItems = arrayOf(
                 SettingStringDropdown(R.id.spinner_speech_to_text_backend, SPEECH_TO_TEXT_BACKEND, listOf(
                     getString(R.string.settings_option_openai_api),
@@ -360,7 +387,7 @@ class MainActivity : AppCompatActivity() {
                 SettingText(R.id.field_llm_endpoint, LLM_ENDPOINT, getString(R.string.settings_llm_endpoint_default)),
                 SettingText(R.id.field_llm_model, LLM_MODEL, getString(R.string.settings_llm_model_default)),
                 SettingText(R.id.field_llm_api_key, LLM_API_KEY),
-                SettingText(R.id.field_llm_prompt, LLM_PROMPT, getString(R.string.settings_llm_prompt_default)),
+                SettingText(R.id.field_llm_prompt, LLM_PROMPT, DEFAULT_POLISH_PROMPT),
             )
             val btnApply: Button = findViewById(R.id.btn_settings_apply)
             btnApply.isEnabled = false
