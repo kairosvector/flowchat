@@ -2,6 +2,11 @@
 
 原專案：j3soon/whisper-to-input（GPL-3.0，作者 Yan-Bin Diau、Johnson Sun 等，見原 LICENSE 與 README）。
 
+## 2026-10-31 fork6 第八輪：ROUND 7 補驗證與小修（版本仍是 0.4-fork6，versionCode 17）
+- 頂列四顆鍵（上次、AI 潤飾、設定、退格）的背景沒有畫出來：`ripple` 底下直接放 `shape` 不會繪製，改成包在 `item` 裡（`kb_bg_top_key`、`kb_bg_top_ai`），AI 開啟時的 tertiaryContainer 底與關閉時的外框才會出現。
+- `kb_listening` 尾端多一個空白，狀態列「● 聆聽中 0:03」不再有雙空白。
+- 沒有新增功能；點「上次」鍵沒有狀態提示，因為 SPEC_layout §3.4 沒有要求。ROUND 7 補拍截圖、補量測、補 ROUND 6 驗證證據，詳見 REPORT。
+
 ## 2026-10-31 fork6 第七輪：鍵盤主畫面新版面（版本仍是 0.4-fork6，versionCode 16）
 
 依據 .agent/design/layout_r7/SPEC_layout.md 與 handoff ROUND 7 TASK 重構鍵盤主畫面版面，維持固定 280dp 面板高度。簽章設定維持本機 debug keystore，versionName 維持 0.4-fork6。
