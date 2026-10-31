@@ -49,6 +49,7 @@ import androidx.core.math.MathUtils
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.datastore.preferences.core.edit
+import com.example.whispertoinput.ErrorDisplay
 import com.example.whispertoinput.ErrorMessageMapper
 import com.example.whispertoinput.ErrorStage
 import com.example.whispertoinput.LANGUAGE_CODE
@@ -134,7 +135,7 @@ class WhisperKeyboard {
     // Swaps the text before the cursor for another one (only if it still
     // matches); false = nothing was changed.
     private var onReplaceInserted: (old: String, new: String) -> Boolean = { _, _ -> false }
-    private var onRepolish: (raw: String, done: (polished: String?, error: String?) -> Unit) -> Unit =
+    private var onRepolish: (raw: String, done: (polished: String?, error: ErrorDisplay?) -> Unit) -> Unit =
         { _, done -> done(null, null) }
 
     // ---- state ----
@@ -213,13 +214,22 @@ class WhisperKeyboard {
 
     // Status resolver and handlers
     private val statusResolver = StatusResolver()
+    // Full reasons for TalkBack / the long-press tooltip, and the 429 hint
+    // under the mic; each lives exactly as long as the status it belongs to.
+    private var errorDetail: String? = null
+    private var transientDetail: String? = null
+    private var errorRateLimited: Boolean = false
     private val clearTransientRunnable = Runnable {
         statusResolver.clearTransient()
+        transientDetail = null
         renderStatus()
     }
     private val clearErrorRunnable = Runnable {
         statusResolver.clearError()
-        renderStatus()
+        errorDetail = null
+        errorRateLimited = false
+        // The hint row falls back to its normal text.
+        render()
     }
 
     // ---- views ----
@@ -291,7 +301,7 @@ class WhisperKeyboard {
         onInsertText: (String) -> Unit = { },
         onUndoInsert: (String) -> Boolean = { false },
         onReplaceInserted: (old: String, new: String) -> Boolean = { _, _ -> false },
-        onRepolish: (raw: String, done: (polished: String?, error: String?) -> Unit) -> Unit =
+        onRepolish: (raw: String, done: (polished: String?, error: ErrorDisplay?) -> Unit) -> Unit =
             { _, done -> done(null, null) },
     ): View {
         val root = layoutInflater.inflate(R.layout.keyboard_view, null)
@@ -442,7 +452,8 @@ class WhisperKeyboard {
         showStatus(context.getString(resId), durationMs)
     }
 
-    fun showStatus(message: String, durationMs: Long = 2000L) {
+    fun showStatus(message: String, durationMs: Long = 2000L, detail: String? = null) {
+        transientDetail = detail
         statusResolver.setTransient(message, durationMs, SystemClock.uptimeMillis())
         renderStatus()
         handler.removeCallbacks(clearTransientRunnable)
@@ -454,14 +465,19 @@ class WhisperKeyboard {
         showErrorStatus(context.getString(resId), durationMs)
     }
 
-    fun showErrorStatus(message: String, durationMs: Long = 4000L) {
+    fun showErrorStatus(message: String, durationMs: Long = 4000L) =
+        showErrorStatus(ErrorDisplay(message), durationMs)
+
+    fun showErrorStatus(error: ErrorDisplay, durationMs: Long = 4000L) {
+        errorDetail = error.detail
+        errorRateLimited = error.rateLimited
         handler.removeCallbacks(ticker)
         repolishing = false
         stagedRaw = null
         forgetInserted()
         refreshLastRecord()
         state = UiState.Idle
-        statusResolver.setError(message, durationMs, SystemClock.uptimeMillis())
+        statusResolver.setError(error.text, durationMs, SystemClock.uptimeMillis())
         render()
         handler.removeCallbacks(clearErrorRunnable)
         handler.postDelayed(clearErrorRunnable, durationMs)
@@ -478,7 +494,7 @@ class WhisperKeyboard {
         polished: String?,
         insertedText: String?,
         note: PolishNote,
-        polishError: String? = null
+        polishError: ErrorDisplay? = null
     ) {
         rawResultText = raw
         polishedResultText = polished?.takeIf { it.isNotEmpty() }
@@ -499,7 +515,8 @@ class WhisperKeyboard {
         if (note == PolishNote.FAILED && ctx != null) {
             // The raw text is already inserted; say why polishing failed
             // (the result card keeps showing "已插入" and the retry link).
-            showStatus(polishError ?: ErrorMessageMapper.other(ErrorStage.POLISH).resolve(ctx), POLISH_ERROR_STATUS_MS)
+            val shown = polishError ?: ErrorMessageMapper.other(ErrorStage.POLISH).display(ctx)
+            showStatus(shown.text, POLISH_ERROR_STATUS_MS, shown.detail)
         } else if (inserted != null && ctx != null) {
             showStatus(ctx.getString(R.string.kb_action_inserted), 2000L)
         }
@@ -695,6 +712,15 @@ class WhisperKeyboard {
         )
 
         statusView.text = resolved.text
+        // The full reason for an error / polish failure: read by TalkBack and
+        // shown by a long press; both go away with the status itself.
+        val detail = when (resolved.type) {
+            StatusType.ERROR -> errorDetail
+            StatusType.TRANSIENT -> transientDetail
+            else -> null
+        }
+        statusView.contentDescription = detail
+        TooltipCompat.setTooltipText(statusView, detail)
         if (resolved.isError || resolved.isRecording) {
             statusView.setTextColor(color(context, R.color.kb_recording))
             if (resolved.isRecording) {
@@ -789,6 +815,8 @@ class WhisperKeyboard {
                 hint.visibility = View.VISIBLE
                 hint.setText(
                     when {
+                        s == UiState.Idle && errorRateLimited ->
+                            if (shouldShowRetry()) R.string.kb_hint_rate_limited_retry else R.string.kb_hint_rate_limited
                         s == UiState.Idle -> R.string.kb_hint_idle
                         cancelArmed -> R.string.kb_hint_cancel_armed
                         else -> R.string.kb_hint_recording
@@ -1290,10 +1318,8 @@ class WhisperKeyboard {
                 }
                 val context = keyboardView?.context
                 if (context != null) {
-                    showStatus(
-                        error ?: ErrorMessageMapper.other(ErrorStage.POLISH).resolve(context),
-                        POLISH_ERROR_STATUS_MS
-                    )
+                    val shown = error ?: ErrorMessageMapper.other(ErrorStage.POLISH).display(context)
+                    showStatus(shown.text, POLISH_ERROR_STATUS_MS, shown.detail)
                 }
             } else {
                 polishedResultText = polished

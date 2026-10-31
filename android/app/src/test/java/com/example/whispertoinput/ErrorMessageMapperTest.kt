@@ -12,7 +12,7 @@ import java.net.NoRouteToHostException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 
-/** Round 9: the short status-bar sentence for each kind of failure (fake keys only). */
+/** Rounds 9 and 10: the short status-bar sentence and the full reason for each failure (fake keys only). */
 class ErrorMessageMapperTest {
     private val stages = listOf(ErrorStage.TRANSCRIBE, ErrorStage.POLISH)
 
@@ -31,31 +31,48 @@ class ErrorMessageMapperTest {
         R.string.kb_err_timeout to "kb_err_timeout",
         R.string.kb_err_offline to "kb_err_offline",
         R.string.kb_err_http_code to "kb_err_http_code",
-        R.string.kb_err_other to "kb_err_other"
+        R.string.kb_err_other to "kb_err_other",
+        R.string.kb_err_full_invalid_key to "kb_err_full_invalid_key",
+        R.string.kb_err_full_rate_limited to "kb_err_full_rate_limited",
+        R.string.kb_err_full_server to "kb_err_full_server",
+        R.string.kb_err_full_http_code to "kb_err_full_http_code"
     )
 
-    /** What the keyboard would show: the stage prefix around the reason, from strings.xml. */
-    private fun sentence(e: ErrorText): String {
-        val reasonTemplate = strings.getValue(names.getValue(e.reasonRes))
-        val reason = if (e.code != null) reasonTemplate.replace("%1\$d", e.code.toString()) else reasonTemplate
-        return strings.getValue(names.getValue(e.stage.prefixRes)).replace("%1\$s", reason)
+    private fun wrap(stage: ErrorStage, reasonRes: Int, code: Int?): String {
+        val template = strings.getValue(names.getValue(reasonRes))
+        val reason = if (code != null) template.replace("%1\$d", code.toString()) else template
+        return strings.getValue(names.getValue(stage.prefixRes)).replace("%1\$s", reason)
     }
+
+    /** What the status bar shows: the stage prefix around the short reason, from strings.xml. */
+    private fun sentence(e: ErrorText) = wrap(e.stage, e.reasonRes, e.code)
+
+    /** What the tooltip / TalkBack get: the stage prefix around the full reason. */
+    private fun full(e: ErrorText) = wrap(e.stage, e.fullReasonRes, e.code)
 
     private fun http(stage: ErrorStage, code: Int) = ErrorMessageMapper.fromHttp(stage, code)
     private fun thrown(stage: ErrorStage, e: Throwable) = ErrorMessageMapper.fromThrowable(stage, e)
+
+    /** Width in full-width characters: ASCII (digits, letters, space) counts half, everything else one. */
+    private fun width(text: String): Double = text.sumOf { if (it.code < 0x80) 0.5 else 1.0 }
 
     @Test
     fun http401And403MeanInvalidKey() {
         for (stage in stages) for (code in listOf(401, 403)) {
             val t = http(stage, code)
             assertEquals(R.string.kb_err_invalid_key, t.reasonRes)
-            assertNull(t.code)
+            assertEquals(R.string.kb_err_full_invalid_key, t.fullReasonRes)
+            assertEquals(code, t.code)
         }
     }
 
     @Test
     fun http429MeansRateLimited() {
-        for (stage in stages) assertEquals(R.string.kb_err_rate_limited, http(stage, 429).reasonRes)
+        for (stage in stages) {
+            val t = http(stage, 429)
+            assertEquals(R.string.kb_err_rate_limited, t.reasonRes)
+            assertEquals(R.string.kb_err_full_rate_limited, t.fullReasonRes)
+        }
     }
 
     @Test
@@ -63,7 +80,8 @@ class ErrorMessageMapperTest {
         for (stage in stages) for (code in listOf(500, 503, 599)) {
             val t = http(stage, code)
             assertEquals(R.string.kb_err_server, t.reasonRes)
-            assertNull(t.code)
+            assertEquals(R.string.kb_err_full_server, t.fullReasonRes)
+            assertEquals(code, t.code)
         }
     }
 
@@ -72,6 +90,7 @@ class ErrorMessageMapperTest {
         for (stage in stages) for (code in listOf(404, 418)) {
             val t = http(stage, code)
             assertEquals(R.string.kb_err_http_code, t.reasonRes)
+            assertEquals(R.string.kb_err_full_http_code, t.fullReasonRes)
             assertEquals(code, t.code)
         }
     }
@@ -106,6 +125,7 @@ class ErrorMessageMapperTest {
             for (e in listOf<Throwable>(IOException("boom"), Exception("boom"), IllegalArgumentException("bad url"))) {
                 val t = thrown(stage, e)
                 assertEquals(R.string.kb_err_other, t.reasonRes)
+                assertEquals(R.string.kb_err_other, t.fullReasonRes)
                 assertNull(t.code)
             }
         }
@@ -127,48 +147,98 @@ class ErrorMessageMapperTest {
     }
 
     @Test
-    fun theSentencesReadAsSpecified() {
-        assertEquals("轉寫失敗：API Key 無效", sentence(http(ErrorStage.TRANSCRIBE, 401)))
-        assertEquals("潤飾失敗：API Key 無效", sentence(http(ErrorStage.POLISH, 403)))
-        assertEquals("轉寫失敗：次數超量，請稍後再試", sentence(http(ErrorStage.TRANSCRIBE, 429)))
-        assertEquals("潤飾失敗：次數超量，請稍後再試", sentence(http(ErrorStage.POLISH, 429)))
-        assertEquals("轉寫失敗：伺服器錯誤", sentence(http(ErrorStage.TRANSCRIBE, 503)))
-        assertEquals("潤飾失敗：伺服器錯誤", sentence(http(ErrorStage.POLISH, 599)))
+    fun theShortSentencesReadAsSpecified() {
+        assertEquals("轉寫失敗：金鑰無效", sentence(http(ErrorStage.TRANSCRIBE, 401)))
+        assertEquals("轉寫失敗：金鑰無效", sentence(http(ErrorStage.TRANSCRIBE, 403)))
+        assertEquals("潤飾失敗：金鑰無效", sentence(http(ErrorStage.POLISH, 401)))
+        assertEquals("潤飾失敗：金鑰無效", sentence(http(ErrorStage.POLISH, 403)))
+        assertEquals("轉寫失敗：次數超量", sentence(http(ErrorStage.TRANSCRIBE, 429)))
+        assertEquals("潤飾失敗：次數超量", sentence(http(ErrorStage.POLISH, 429)))
+        assertEquals("轉寫失敗：服務異常", sentence(http(ErrorStage.TRANSCRIBE, 500)))
+        assertEquals("轉寫失敗：服務異常", sentence(http(ErrorStage.TRANSCRIBE, 503)))
+        assertEquals("潤飾失敗：服務異常", sentence(http(ErrorStage.POLISH, 599)))
         assertEquals("轉寫失敗：連線逾時", sentence(thrown(ErrorStage.TRANSCRIBE, SocketTimeoutException())))
         assertEquals("潤飾失敗：連線逾時", sentence(thrown(ErrorStage.POLISH, SocketTimeoutException())))
         assertEquals("轉寫失敗：沒有網路", sentence(thrown(ErrorStage.TRANSCRIBE, UnknownHostException())))
         assertEquals("潤飾失敗：沒有網路", sentence(thrown(ErrorStage.POLISH, ConnectException())))
-        assertEquals("轉寫失敗：發生錯誤（代碼 404）", sentence(http(ErrorStage.TRANSCRIBE, 404)))
-        assertEquals("潤飾失敗：發生錯誤（代碼 418）", sentence(http(ErrorStage.POLISH, 418)))
+        assertEquals("轉寫失敗：錯誤 404", sentence(http(ErrorStage.TRANSCRIBE, 404)))
+        assertEquals("轉寫失敗：錯誤 418", sentence(http(ErrorStage.TRANSCRIBE, 418)))
+        assertEquals("潤飾失敗：錯誤 418", sentence(http(ErrorStage.POLISH, 418)))
         assertEquals("轉寫失敗：發生錯誤", sentence(thrown(ErrorStage.TRANSCRIBE, IOException("x"))))
         assertEquals("潤飾失敗：發生錯誤", sentence(ErrorMessageMapper.other(ErrorStage.POLISH)))
     }
 
     @Test
-    fun noSentenceHasACodeUnlessItIsTheOtherHttpCase() {
-        val others = listOf(
-            http(ErrorStage.TRANSCRIBE, 401), http(ErrorStage.TRANSCRIBE, 429),
-            http(ErrorStage.POLISH, 500), thrown(ErrorStage.POLISH, IOException("x")),
-            thrown(ErrorStage.TRANSCRIBE, SocketTimeoutException()), thrown(ErrorStage.POLISH, UnknownHostException())
-        )
-        for (t in others) assertFalse(sentence(t), sentence(t).contains("代碼"))
+    fun theFullReasonsKeepTheLongWordingAndAddTheHttpCode() {
+        assertEquals("轉寫失敗：API Key 無效（HTTP 401）", full(http(ErrorStage.TRANSCRIBE, 401)))
+        assertEquals("潤飾失敗：API Key 無效（HTTP 403）", full(http(ErrorStage.POLISH, 403)))
+        assertEquals("轉寫失敗：次數超量，請稍後再試（HTTP 429）", full(http(ErrorStage.TRANSCRIBE, 429)))
+        assertEquals("潤飾失敗：次數超量，請稍後再試（HTTP 429）", full(http(ErrorStage.POLISH, 429)))
+        assertEquals("潤飾失敗：伺服器錯誤（HTTP 503）", full(http(ErrorStage.POLISH, 503)))
+        assertEquals("轉寫失敗：伺服器錯誤（HTTP 500）", full(http(ErrorStage.TRANSCRIBE, 500)))
+        assertEquals("轉寫失敗：連線逾時", full(thrown(ErrorStage.TRANSCRIBE, SocketTimeoutException())))
+        assertEquals("潤飾失敗：沒有網路", full(thrown(ErrorStage.POLISH, UnknownHostException())))
+        assertEquals("轉寫失敗：發生錯誤（代碼 418）", full(http(ErrorStage.TRANSCRIBE, 418)))
+        assertEquals("潤飾失敗：發生錯誤（代碼 404）", full(http(ErrorStage.POLISH, 404)))
+        assertEquals("轉寫失敗：發生錯誤", full(thrown(ErrorStage.TRANSCRIBE, IOException("x"))))
     }
 
     @Test
-    fun aResponseBodyAndAKeyNeverReachTheSentenceOrTheLog() {
+    fun everyShortSentenceFitsNineFullWidthCharacters() {
+        val all = mutableListOf<ErrorText>()
+        for (stage in stages) {
+            for (code in listOf(401, 403, 429, 500, 503, 599, 404, 418)) all += http(stage, code)
+            all += thrown(stage, SocketTimeoutException())
+            all += thrown(stage, UnknownHostException())
+            all += thrown(stage, IOException("x"))
+        }
+        for (t in all) {
+            val text = sentence(t)
+            assertTrue("$text is ${width(text)} wide", width(text) <= 9.0)
+        }
+        // four-digit codes may run a little over; that is allowed to ellipsize
+        assertTrue(width(sentence(http(ErrorStage.TRANSCRIBE, 1001))) > 9.0)
+    }
+
+    @Test
+    fun theShortSentencesNeverContainTheWordsMovedToTheFullReason() {
+        for (stage in stages) for (code in listOf(401, 429, 503, 418)) {
+            val text = sentence(http(stage, code))
+            assertFalse(text, text.contains("請稍後"))
+            assertFalse(text, text.contains("HTTP"))
+            assertFalse(text, text.contains("代碼"))
+        }
+    }
+
+    @Test
+    fun theHintStringsExistAndStayShort() {
+        assertEquals("請稍後再試", strings.getValue("kb_hint_rate_limited"))
+        assertEquals("請稍後再按 ↻ 重試", strings.getValue("kb_hint_rate_limited_retry"))
+    }
+
+    @Test
+    fun aResponseBodyAndAKeyNeverReachTheSentenceTheFullReasonOrTheLog() {
         val key = "gsk_test_xxxx3f9a"
         val body = "{\"error\":{\"message\":\"Invalid API Key $key\",\"type\":\"invalid_request_error\"}}"
         // The messages below are what the old code produced: the whole body as the message.
         val leaky = listOf(Exception(body), IOException(body), IllegalStateException(body), RuntimeException(body))
         for (stage in stages) for (e in leaky) {
-            val text = sentence(thrown(stage, e))
-            val log = ErrorMessageMapper.logLine(stage, e)
-            for (out in listOf(text, log)) {
+            val t = thrown(stage, e)
+            for (out in listOf(sentence(t), full(t), ErrorMessageMapper.logLine(stage, e))) {
                 assertFalse(out, out.contains(key))
                 assertFalse(out, out.contains("gsk_"))
                 assertFalse(out, out.contains("Invalid API Key"))
                 assertFalse(out, out.contains("{"))
                 assertFalse(out, out.contains("invalid_request_error"))
+            }
+        }
+        // Same for every HTTP failure the transcriber / polish client can raise: only the code is known.
+        for (stage in stages) for (code in listOf(401, 403, 429, 503, 418)) {
+            val t = http(stage, code)
+            for (out in listOf(sentence(t), full(t))) {
+                assertFalse(out, out.contains(key))
+                assertFalse(out, out.contains("Invalid API Key"))
+                assertFalse(out, out.contains("{"))
             }
         }
         // The status exception itself carries the code only.
@@ -202,6 +272,6 @@ class ErrorMessageMapperTest {
             assertFalse(name, text.contains("("))
         }
         assertTrue(strings.getValue("kb_err_stage_transcribe").contains("："))
-        assertTrue(strings.getValue("kb_err_http_code").contains("（"))
+        assertTrue(strings.getValue("kb_err_full_http_code").contains("（"))
     }
 }

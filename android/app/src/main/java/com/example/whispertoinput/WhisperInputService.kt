@@ -66,7 +66,7 @@ class WhisperInputService : InputMethodService() {
     private var isFirstTime: Boolean = true
 
     private fun transcriptionCallback(
-        text: String?, raw: String?, polished: String?, note: PolishNote, polishError: String?
+        text: String?, raw: String?, polished: String?, note: PolishNote, polishError: ErrorDisplay?
     ) {
         if (!text.isNullOrEmpty()) {
             currentInputConnection?.commitText(text, 1)
@@ -88,8 +88,8 @@ class WhisperInputService : InputMethodService() {
         }
     }
 
-    private fun transcriptionExceptionCallback(message: String) {
-        whisperKeyboard.showErrorStatus(message)
+    private fun transcriptionExceptionCallback(error: ErrorDisplay) {
+        whisperKeyboard.showErrorStatus(error)
     }
 
     private suspend fun updateAudioFormat() {

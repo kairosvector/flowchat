@@ -43,24 +43,42 @@ class HttpStatusException(val code: Int) : Exception("HTTP $code")
 class SettingsMissingException(message: String) : Exception(message)
 
 /**
- * The short status-bar sentence for one failure, as string resources:
- * the stage prefix wrapped around [reasonRes]. [code] is only filled for
- * "other HTTP code" and is the argument of that reason string.
+ * What the keyboard shows for one failure: [text] is the short status-bar
+ * sentence, [detail] the full reason (TalkBack and the long-press tooltip),
+ * [rateLimited] asks for the "請稍後再試" hint under the mic (HTTP 429).
  */
-data class ErrorText(val stage: ErrorStage, @StringRes val reasonRes: Int, val code: Int? = null) {
-    fun resolve(context: Context): String {
-        val reason = if (code != null) context.getString(reasonRes, code) else context.getString(reasonRes)
-        return context.getString(stage.prefixRes, reason)
-    }
+data class ErrorDisplay(val text: String, val detail: String? = null, val rateLimited: Boolean = false)
+
+/**
+ * One failure as string resources: the stage prefix wrapped around
+ * [reasonRes] (short, status bar) or [fullReasonRes] (full, tooltip).
+ * [code] is the HTTP status when there was one; it is the argument of
+ * any reason string that has a placeholder.
+ */
+data class ErrorText(
+    val stage: ErrorStage,
+    @StringRes val reasonRes: Int,
+    val code: Int? = null,
+    @StringRes val fullReasonRes: Int = reasonRes
+) {
+    fun resolve(context: Context): String = context.getString(stage.prefixRes, reason(context, reasonRes))
+
+    fun resolveFull(context: Context): String = context.getString(stage.prefixRes, reason(context, fullReasonRes))
+
+    fun display(context: Context): ErrorDisplay =
+        ErrorDisplay(resolve(context), resolveFull(context), reasonRes == R.string.kb_err_rate_limited)
+
+    private fun reason(context: Context, res: Int): String =
+        if (code != null) context.getString(res, code) else context.getString(res)
 }
 
 /** Pure mapping from "what went wrong" to the sentence shown on the keyboard (no Android needed). */
 object ErrorMessageMapper {
     fun fromHttp(stage: ErrorStage, code: Int): ErrorText = when {
-        code == 401 || code == 403 -> ErrorText(stage, R.string.kb_err_invalid_key)
-        code == 429 -> ErrorText(stage, R.string.kb_err_rate_limited)
-        code in 500..599 -> ErrorText(stage, R.string.kb_err_server)
-        else -> ErrorText(stage, R.string.kb_err_http_code, code)
+        code == 401 || code == 403 -> ErrorText(stage, R.string.kb_err_invalid_key, code, R.string.kb_err_full_invalid_key)
+        code == 429 -> ErrorText(stage, R.string.kb_err_rate_limited, code, R.string.kb_err_full_rate_limited)
+        code in 500..599 -> ErrorText(stage, R.string.kb_err_server, code, R.string.kb_err_full_server)
+        else -> ErrorText(stage, R.string.kb_err_http_code, code, R.string.kb_err_full_http_code)
     }
 
     /**

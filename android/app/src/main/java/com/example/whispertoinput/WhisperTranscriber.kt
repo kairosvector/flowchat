@@ -96,8 +96,8 @@ class WhisperTranscriber {
         filename: String,
         mediaType: String,
         attachToEnd: String,
-        callback: (text: String?, raw: String?, polished: String?, note: PolishNote, polishError: String?) -> Unit,
-        exceptionCallback: (String) -> Unit,
+        callback: (text: String?, raw: String?, polished: String?, note: PolishNote, polishError: ErrorDisplay?) -> Unit,
+        exceptionCallback: (ErrorDisplay) -> Unit,
         stageCallback: ((PolishStage, String?) -> Unit)? = null
     ) {
         suspend fun makeWhisperRequest(): Outcome {
@@ -257,7 +257,7 @@ class WhisperTranscriber {
                 outcome?.rawCore,
                 outcome?.polishedCore,
                 outcome?.polishNote ?: PolishNote.OFF,
-                outcome?.polishError?.resolve(context)
+                outcome?.polishError?.display(context)
             )
 
             // A short sentence for the status bar. The exception message
@@ -268,9 +268,9 @@ class WhisperTranscriber {
                 val hint = (failure as? SettingsMissingException)?.message
                 exceptionCallback(
                     if (!hint.isNullOrEmpty()) {
-                        hint
+                        ErrorDisplay(hint)
                     } else {
-                        ErrorMessageMapper.fromThrowable(ErrorStage.TRANSCRIBE, failure).resolve(context)
+                        ErrorMessageMapper.fromThrowable(ErrorStage.TRANSCRIBE, failure).display(context)
                     }
                 )
             }
@@ -286,11 +286,11 @@ class WhisperTranscriber {
      * threshold, because the user asked for it explicitly. [callback]
      * runs on the main thread with the polished text, or null when
      * polishing failed or was cancelled; on failure the second argument
-     * is the short status sentence ("潤飾失敗：…"). On success the last record is
+     * is what to show ("潤飾失敗：…" and its full reason). On success the last record is
      * updated, so the keyboard and the history keep agreeing.
      * Cancel with [stop], like a normal transcription.
      */
-    fun polishAsync(context: Context, rawText: String, callback: (String?, String?) -> Unit) {
+    fun polishAsync(context: Context, rawText: String, callback: (String?, ErrorDisplay?) -> Unit) {
         val job = CoroutineScope(Dispatchers.Main).launch {
             val (polished, error) = withContext(Dispatchers.IO) {
                 try {
@@ -320,7 +320,7 @@ class WhisperTranscriber {
                     Pair<String?, ErrorText?>(null, ErrorMessageMapper.fromThrowable(ErrorStage.POLISH, e))
                 }
             }
-            callback(polished, error?.resolve(context))
+            callback(polished, error?.display(context))
         }
         registerTranscriptionJob(job)
     }
