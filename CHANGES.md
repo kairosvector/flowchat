@@ -2,6 +2,35 @@
 
 原專案：j3soon/whisper-to-input（GPL-3.0，作者 Yan-Bin Diau、Johnson Sun 等，見原 LICENSE 與 README）。
 
+## 2026-10-31 fork6 第四輪修正（版本仍是 0.4-fork6，versionCode 13）
+
+Kevy 實機測試（vc12）加上 UI review 的修正，簽章設定沒有動，沒有動設定頁。
+
+### P0
+1. **底部白條**：`WhisperInputService.applyNavigationBarStyle()` 把輸入法視窗的 `navigationBarColor`（與 `navigationBarDividerColor`）設成面板底色 token `kb_background`，並用 `WindowInsetsControllerCompat.isAppearanceLightNavigationBars = !isDark` 配合淺／深圖示；在 `onCreateInputView`、`onStartInputView`、`onConfigurationChanged` 都會重套，所以主題切換會跟著更新。API 35 以上（強制 edge-to-edge）由第三輪的根 View insets padding 補上：現在取 `navigationBars`（忽略可見性）與 `mandatorySystemGestures` 的 bottom 較大者，由根 View 的 `kb_background` 填滿。
+2. **潤飾只出原文**：
+   - 根因與證據見 REPORT。程式現在把每次潤飾的結果分成四種（`PolishNote`：關閉／文字太短／失敗／成功），結果卡一定會說明，不會再安靜地只給原文。
+   - `PolishClient.polishDetailed()` 回傳失敗原因並寫 log（tag `PolishClient`／`WhisperTranscriber`：HTTP 碼、錯誤 type/code、耗時、字數、是否與輸入相同；不印 key、不印文字）。
+   - 潤飾失敗：結果卡顯示「AI 潤飾失敗 · 重試」（13sp、錯誤色，「重試」是文字按鈕，48dp 高），重試只重跑潤飾（處理中狀態），原文已插入、「插入」可用。文字太短（≤ `POLISH_MIN_LENGTH`）被略過時顯示「文字太短，未潤飾 · 仍要潤飾」，可強制潤飾。潤飾成功但與原文相同：照常顯示潤飾區並加註「無需修改」。
+   - Prompt 補上「A，不然是 B 才對」「應該是 B 才對」這類口語自我更正，加範例「約後天，不然是明天才對」→「約明天」；`POLISH_PROMPT_VERSION` 升為 3，沒改過的舊預設（fork5、第一～三輪）會一次性遷移到新預設。
+   - 順手：推理型模型回傳開頭的 `<think>…</think>` 會被剝掉。
+3. **高度不跳動**：所有狀態面板主體固定 280dp（外層根 View 只多加導覽列 inset），結果卡用剩餘高度並在內部捲動；insets 改用「忽略可見性」的穩定值，導覽列顯示／隱藏不會改變面板高度。
+
+### 結果卡（Kevy 的決定）
+- 上面是「✦ AI 潤飾」標籤＋潤飾文字（粗體），下面是「原文」標籤＋原文：onSurfaceVariant 灰字、不加刪除線、預設 2 行（`maxLines=2` ＋ ellipsize），點一下展開／收合。潤飾關閉或失敗時只顯示一段文字（完整、onSurface 色、沒有「原文」標籤）。只有文字區捲動，動作列固定在卡片底部。
+- 結果卡左右 padding 16dp，文字可換行。
+
+### P1
+- 「插入」：未插入時 primary 實心；插入後變「✓ 已插入」tonal（primaryContainer）且 `isEnabled = false`。復原照舊可用。
+- 上方 chip 的文字「已插入，可復原或重新潤飾」改成「已插入」。
+- 退格鍵拿掉「長按」角標，只剩圖示；長按連續刪除（0.4s 開始、1.5s 後逐詞）不變。
+- 字級：結果卡按鈕列、chip、「AI 潤飾失敗 · 重試」那列在 1.45 倍字級下都沒有溢出或被裁（第三輪的字級上限維持）。
+
+### 驗證
+- 模擬器（API 36）：淺／深各一張，面板底色一路延伸到螢幕底，底部那條與面板同色（深 `#12141A`、淺 `#EEF0F8`，連續切換 4 次主題都跟著變）；第三輪版本（vc12）在同一台模擬器上底部那條是純黑 `#000000`。
+- 用本機的假伺服器（暫時，已移除）測了潤飾成功／回應與輸入相同／HTTP 500／文字太短／重試／`<think>` 剝除，以及 1.45 倍字級。各狀態輸入法視窗高度一致（861px = 280dp 面板＋系統的 48dp 導覽列區）。
+- 沒有驗證到：真的 Groq 回應、實機（Kevy 的手機）上的底部條與高度跳動、`isAppearanceLightNavigationBars` 在舊 API 的外觀。
+
 ## 2026-10-31 fork6 第三輪修正（版本仍是 0.4-fork6，versionCode 12）
 
 設計審查帶出來的視覺修正，加上 Kevy 的四個決定與第二輪 code review 的建議。簽章設定沒有動。
@@ -23,7 +52,7 @@
 ### 視覺細節
 - 結果卡底色新增 token `kb_card`（淺 #FFFFFF／深 #1C1F27）；1dp outline、圓角 16dp。
 - AI 潤飾 pill 開／關兩態（填色＋自繪 26×16 開關／外框＋灰色開關）沿用第一輪的 drawable，對照 04_idle_dark.png。
-- 結果卡：原文刪除線、onSurfaceVariant 60% 透明；潤飾文字沿用 bold（沒有改成 medium：Android 的 CJK 字型不一定有 500 字重，bold 才能保證看得出差異）；標籤 62dp、11sp 粗體，潤飾標籤前加 12dp ✦。
+- 結果卡：（第三輪；第四輪起順序與刪除線已作廢，見第四輪）潤飾文字沿用 bold（沒有改成 medium：Android 的 CJK 字型不一定有 500 字重，bold 才能保證看得出差異）；標籤 62dp、11sp 粗體，潤飾標籤前加 12dp ✦。
 - 待機／結果／錄音中的主鍵有 3dp 陰影，處理中沒有（由程式設定 elevation）；處理中 spinner 外擴 6dp、線寬 4dp。
 - 計時：13sp 粗體、錄音紅、`fontFeatureSettings="tnum"`。
 - 圖示尺寸：主麥 44（96dp 鍵、padding 26）、處理中 ✦ 40、側鍵與底列 22（Enter 鍵原本被擠成 16，已改 22）、空白 20、AI pill 18、插入與卡片按鈕 16、潤飾標籤 12。
@@ -67,19 +96,19 @@
 - release／debug 都建置通過。模擬器上確認：長文字結果卡可捲動、動作鈕排列正常；插入後復原有效；插入後移動游標，復原鍵立刻變灰且提示變回「點下方按鈕插入文字」；錄音畫面正常。
 - 沒有驗證到：游標不動但文字被改掉時的「未復原」提示（邏輯是同一段比對，沒有實際製造）、Groq 實際收到 `language` 欄位（沒有 API key）、`ACTION_CANCEL` 路徑、自訂語言碼循環。
 
-## 2026-10-30 fork6 改動（版本 0.4-fork6，versionCode 12）
+## 2026-10-30 fork6 改動（版本 0.4-fork6，versionCode 13）
 
 ### 做了兩件事：鍵盤 UI redesign、潤飾 prompt 更新
 設計稿來源：`whisper-input-redesign.zip`（DESIGN_NOTES.md 的 dp 與色票為準，Compose 提示改用 XML View 實作）。沒有動轉寫／潤飾管線、短句門檻（仍是 `POLISH_MIN_LENGTH = 10`）、Groq 預設值、fork5 的生命週期修正。
 
 ### 1. 鍵盤 UI redesign
 - 整個面板由一個狀態列舉驅動（`Idle / Recording / Processing / Result`），畫面上哪些元件顯示、顯示什麼，全部集中在 `WhisperKeyboard.render()` 一處決定，沒有散在各處的 visibility 判斷。
-- 版面（`res/layout/keyboard_view.xml`）：面板高 280dp、padding 左右 8／上 6／下 8；頂列 48dp（預覽 chip｜AI 潤飾 pill 開關｜設定）；底列 52dp 在每個狀態位置固定（左鍵｜空白｜退格（角標「長按」）｜Enter）。Android 輸入法框架會忽略根 View 的高度，所以 280dp 是掛在內層 LinearLayout 上。
+- 版面（`res/layout/keyboard_view.xml`）：面板高 280dp、padding 左右 8／上 6／下 8；頂列 48dp（預覽 chip｜AI 潤飾 pill 開關｜設定）；底列 52dp 在每個狀態位置固定（左鍵｜空白｜退格｜Enter）。Android 輸入法框架會忽略根 View 的高度，所以 280dp 是掛在內層 LinearLayout 上。
 - 淺色／深色色票照 DESIGN_NOTES（seed #3B5BDB）：`values/kb_colors.xml`、`values-night/kb_colors.xml`。圖示全部改成 Material Symbols Rounded 風格的 vector drawable（`kb_ic_*`），背景與按鍵形狀為 `kb_bg_*`。
 - 待機：96dp 實心 primary 圓形麥克風，下方提示「點一下開始 · 按住說話」；兩側 48×48 的「語言」「紀錄」鍵取代原本的複製鍵。
 - 錄音中：主鍵變 84dp 紅色停止鍵（28dp 圓角方塊）、兩圈脈動環（+9／+18dp，1.2s）、左右各 12 根波形（每 50ms 更新）、頂列紅底顯示紅點、「聆聽中…」與計時 `0:07`（第三輪起；沒有即時字幕）；提示「放開送出 · 點擊停止 · 上滑取消」；左下鍵變「取消 ✕」。自訂 View 在 `keyboard/KeyboardViews.kt`（`WaveformView`、`PulseRingView`、`SpinnerRingView`）。
 - 處理中：主鍵改 primaryContainer 底＋✦，外圈 indeterminate spinner（外擴 6dp、線寬 4dp）；下方步驟 chip 顯示「✓ 錄音　轉寫中…／✓ 轉寫　AI 潤飾中…」，依實際階段更新；潤飾關閉時不列出潤飾步驟。
-- 結果卡：原文（灰、有潤飾版本時加刪除線）與 AI 潤飾（粗體）上下對照，四個動作：插入、重新潤飾、複製、復原；結果狀態時底列左鍵變麥克風。
+- 結果卡：AI 潤飾（粗體）在上、原文（灰、預設 2 行、點一下展開，不加刪除線）在下（第四輪起），四個動作：插入、重新潤飾、複製、復原；結果狀態時底列左鍵變麥克風。
 - 手勢：點一下＝開始／停止；按住（≥400ms）＝說話、放開送出；錄音中上滑超過 48dp＝取消（放開才取消，提示會變成「放開即取消」）。
 - 退格：按住 400ms 後每 50ms 連刪，按住滿 1.5s 後改為整詞刪除（`BreakIterator`，中文也會斷詞）。
 - 手動／自動錄音、上次結果、空白鍵／Enter 在錄音中帶結尾空白／換行送出、重試上次錄音、切換鍵長按叫出系統輸入法選擇器、鍵盤上的潤飾開關（同一個 `POLISH_ENABLED`）都保留。
