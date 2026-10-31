@@ -15,7 +15,7 @@ android {
         minSdk = 24
         targetSdk = 34
         // Fork: bumped so this build is distinguishable from upstream v0.4.
-        versionCode = 14
+        versionCode = 15
         versionName = "0.4-fork6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -41,6 +41,9 @@ android {
     }
     kotlinOptions {
         jvmTarget = "1.8"
+    }
+    lint {
+        disable += "UseAppTint"
     }
 }
 

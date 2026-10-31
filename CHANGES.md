@@ -2,6 +2,34 @@
 
 原專案：j3soon/whisper-to-input（GPL-3.0，作者 Yan-Bin Diau、Johnson Sun 等，見原 LICENSE 與 README）。
 
+## 2026-10-31 fork6 第六輪：設定頁改版（版本仍是 0.4-fork6，versionCode 15）
+
+依據設計稿與 SPEC_settings.md 全面改版設定頁（`MainActivity` / `res/layout/activity_main.xml`）。鍵盤（IME）本身 UI 與行為維持不變，簽章設定維持本機 debug keystore。
+
+### 即時儲存（移除 Apply 按鈕）
+- 原版的 Apply 按鈕已完全移除。
+- 開關（MaterialSwitch）、下拉選單（ExposedDropdownMenu）、切換按鈕組（MaterialButtonToggleGroup）改動即時寫入 DataStore。
+- 文字輸入欄位在失去焦點、按下鍵盤完成（Done）、或頁面進入 `onPause` 時進行驗證並自動存檔，儲存成功跳出短暫 Snackbar「已儲存」。
+- 驗證失敗時欄位顯示錯誤提示且不阻擋離開，舊的合法值予以保留。
+
+### D1：API Key 不跟隨系統備份與換機轉移
+- 設定檔 DataStore 排除在 Android 備份與換機傳輸外，保護敏感 API Key：
+  - API 31+：`res/xml/data_extraction_rules.xml` 中的 `<cloud-backup>` 與 `<device-transfer>` 皆加入 `<exclude domain="file" path="datastore/settings.preferences_pb"/>`。
+  - API 30 以下：`res/xml/backup_rules.xml` 的 `<full-backup-content>` 同步加入該 exclude 規則。
+  - `allowBackup` 維持 `true`，其他一般資料維持正常備份。
+
+### 移除通知權限（POST_NOTIFICATIONS）
+- 狀態卡與 AndroidManifest 移除了對 `POST_NOTIFICATIONS` 的檢查與要求。
+- 理由：經全面清查，全專案沒有任何傳送 Notification 或使用 NotificationManager 的程式碼，過往要求此權限造成使用者困惑且非必要。
+
+### 版面結構與視覺語言
+- 採用 Material 3 結構：`CoordinatorLayout > AppBarLayout(liftOnScroll=true, MaterialToolbar) + NestedScrollView`，捲動時 Toolbar 底色由 background 轉為 card。
+- 卡片式分區由上而下：狀態卡（IME 啟用、當前 IME、麥克風權限檢查）→ 語音辨識 → AI 潤飾（tertiary 配色）→ 輸入與行為 → 關於。
+- API Key 欄位預設使用 `LastFourTransformation` 遮罩（僅顯示最後 4 碼，如 `••••••••••••3f9a`），點擊眼睛圖示切換顯示，離開頁面（`onPause`）自動恢復遮罩。
+- 新增語音辨識與 AI 潤飾的「測試連線」Tonal 按鈕，支援模型列表與端點連線偵測，能解析 401、404、429、500 等狀態並遮蔽敏感金鑰。
+- 顯示中文但儲存英文原值：服務後端、繁簡轉換選項對應英文原字串並移至 `res/values/donottranslate.xml`，確保與現有 Transcriber 及 Service 完全相容。
+- 補齊 lint 設定以忽略 `keyboard_view.xml` 既有 `UseAppTint` 檢查，所有 45 個單元測試全數通過。
+
 ## 2026-10-31 fork6 第五輪修正（版本仍是 0.4-fork6，versionCode 14）
 
 處理第四輪回報裡 Kevy 做的決定。簽章設定沒有動，沒有動設定頁。
