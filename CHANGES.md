@@ -2,6 +2,30 @@
 
 原專案：j3soon/whisper-to-input（GPL-3.0，作者 Yan-Bin Diau、Johnson Sun 等，見原 LICENSE 與 README）。
 
+## 2026-10-31 fork6 第五輪修正（版本仍是 0.4-fork6，versionCode 14）
+
+處理第四輪回報裡 Kevy 做的決定。簽章設定沒有動，沒有動設定頁。
+
+### 潤飾字數門檻改成「不計標點與空白，滿 4 字就潤飾」
+- 舊：標點與空白都算字，`trimmedCore.length > POLISH_MIN_LENGTH(10)` 才潤飾（所以「約後天不然是明天才對」剛好 10 字被略過）。
+- 新：`PolishClient.kt` 的 `countPolishChars()` 算「有效字數」：排除所有空白（含全形空白、NBSP、控制／格式字元）與標點（Unicode 標點、ASCII 標點、全形／半形標點）；字母、數字、中日韓文字、emoji 都算，且以「看得到的一個字」計（用 `BreakIterator` 的字元分界，surrogate pair 的 emoji 算 1 個）。`POLISH_MIN_COUNTED_CHARS = 4`（含 4），`shouldPolish()` 是 `>=`；舊的 `POLISH_MIN_LENGTH` 已移除。
+- 略過時 log：`polish skipped: N counted chars (punctuation/whitespace excluded), minimum is 4`，不印文字、不印 key。
+- 單元測試：`PolishCharCountTest`（10 個）：「好的。」2、「約明天」3、「約後天吧」4、「約後天，不然是明天才對」10、「， 。 ！ ?」0、「OK 好」3，加上數字、ASCII／全形標點、emoji。
+- 「文字太短，未潤飾 · 仍要潤飾」那一列保留：有效字數 < 4 時出現，按「仍要潤飾」會強制潤飾（處理中→結果）；≥ 4 時不會出現。
+
+### 重試成功後自動換成潤飾版
+- 條件：潤飾成功，且這次結果的原文已經在輸入框裡，且潤飾版與原文不同。
+- 安全檢查與復原同一套（`WhisperInputService.onReplaceInserted`）：`getTextBeforeCursor(len, 0)` 必須等於當初插入的文字（含空白鍵／Enter／結尾空白帶進去的尾巴），而且沒有選取範圍；相符才在 `beginBatchEdit()/endBatchEdit()` 裡先刪掉原文、再 commit 潤飾文字（尾巴保留）。
+- 不相符（游標被移動、文字被改、換了輸入框）：不取代、不刪任何東西；卡片顯示潤飾版，「插入」變回可按，上方 chip 回到「點下方按鈕插入文字」。重試失敗仍是第四輪行為（失敗列＋原文已插入），不動輸入框；「無需修改」不取代。
+- 取代後：記錄的已插入文字更新成潤飾版，「插入」維持「✓ 已插入」disabled，chip「已插入」。
+- 復原：取代後按「復原」會把輸入框裡的潤飾文字**還原成原文**（先比對潤飾文字，不相符就不動並提示「游標處的文字已改變，未復原」），toast「已還原為原文」。還原後卡片仍顯示潤飾版，「插入」是 primary 實心可按，chip「已插入」（輸入框裡是原文）；再按「插入」會把原文**換成**潤飾版（不會多貼一份）；再按「復原」會回到原文。沒有取代過時，復原跟以前一樣（刪掉剛插入的文字）。
+- 取代前後游標更新可能連報兩次，所以取代／還原後 0.5 秒內的游標更新只重新記錄位置，不會被當成使用者移動游標。
+
+### 清理
+- CHANGES.md 最早一節（ROUND 1）的 versionCode 標記改回 10（`d998cbd` 當時的 build.gradle）。
+- 移除沒有任何引用的 `kb_hold_hint`（「長按」）字串；專案只有 `values/` 一份字串，沒有其他語系。
+- `.claude/` 維持現狀：不加進 .gitignore、不刪、不 commit。
+
 ## 2026-10-31 fork6 第四輪修正（版本仍是 0.4-fork6，versionCode 13）
 
 Kevy 實機測試（vc12）加上 UI review 的修正，簽章設定沒有動，沒有動設定頁。
@@ -96,7 +120,7 @@ Kevy 實機測試（vc12）加上 UI review 的修正，簽章設定沒有動，
 - release／debug 都建置通過。模擬器上確認：長文字結果卡可捲動、動作鈕排列正常；插入後復原有效；插入後移動游標，復原鍵立刻變灰且提示變回「點下方按鈕插入文字」；錄音畫面正常。
 - 沒有驗證到：游標不動但文字被改掉時的「未復原」提示（邏輯是同一段比對，沒有實際製造）、Groq 實際收到 `language` 欄位（沒有 API key）、`ACTION_CANCEL` 路徑、自訂語言碼循環。
 
-## 2026-10-30 fork6 改動（版本 0.4-fork6，versionCode 13）
+## 2026-10-30 fork6 改動（版本 0.4-fork6，versionCode 10）
 
 ### 做了兩件事：鍵盤 UI redesign、潤飾 prompt 更新
 設計稿來源：`whisper-input-redesign.zip`（DESIGN_NOTES.md 的 dp 與色票為準，Compose 提示改用 XML View 實作）。沒有動轉寫／潤飾管線、短句門檻（仍是 `POLISH_MIN_LENGTH = 10`）、Groq 預設值、fork5 的生命週期修正。
