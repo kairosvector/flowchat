@@ -208,6 +208,7 @@ class MainActivity : AppCompatActivity() {
         refreshStatus()
         // Back from the tone editor: show the new list.
         if (settingsLoaded) reloadTones()
+        refreshClipCount()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -289,6 +290,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupStaticTexts() {
         bindSwitchRow(R.id.row_ai_enable, R.string.st_ai_enable, R.string.st_ai_enable_desc)
+        bindSwitchRow(R.id.row_clip_record, R.string.set_clip_record, R.string.set_clip_record_desc)
         bindSwitchRow(R.id.row_auto_start, R.string.st_auto_start, R.string.st_auto_start_desc)
         bindSwitchRow(R.id.row_switch_back, R.string.st_switch_back, R.string.st_switch_back_desc)
         bindSwitchRow(R.id.row_trailing_space, R.string.st_trailing_space, R.string.st_trailing_space_desc)
@@ -387,6 +389,8 @@ class MainActivity : AppCompatActivity() {
             setupSwitches(prefs)
             setupPostprocessing(prefs)
             setupTones()
+            setupClipClear()
+            refreshClipCount()
             setupTestButtons()
 
             applyBackendLayout()
@@ -791,6 +795,15 @@ class MainActivity : AppCompatActivity() {
                 after(checked)
             }
         }
+        // Switching the clipboard history off empties it right away (SPEC_r8 §13.4).
+        bind(R.id.row_clip_record, CLIP_HISTORY_ENABLED, true) { checked ->
+            if (!checked) {
+                lifecycleScope.launch {
+                    ClipStore.clearAll(this@MainActivity)
+                    refreshClipCount()
+                }
+            }
+        }
         bind(R.id.row_auto_start, AUTO_RECORDING_START, true)
         bind(R.id.row_switch_back, AUTO_SWITCH_BACK, false)
         bind(R.id.row_trailing_space, ADD_TRAILING_SPACE, false)
@@ -825,6 +838,31 @@ class MainActivity : AppCompatActivity() {
             if (!isChecked || !settingsLoaded) return@addOnButtonCheckedListener
             val value = SettingsOptions.storedAt(SettingsOptions.postprocessing, buttons.indexOf(checkedId)) ?: return@addOnButtonCheckedListener
             lifecycleScope.launch { save(POSTPROCESSING, value) }
+        }
+    }
+
+    // ---- clipboard ----------------------------------------------------------------
+
+    private fun refreshClipCount() {
+        val label = findViewById<TextView?>(R.id.text_clip_count) ?: return
+        lifecycleScope.launch {
+            label.text = getString(R.string.set_clip_count, ClipStore.count(this@MainActivity))
+        }
+    }
+
+    private fun setupClipClear() {
+        findViewById<View>(R.id.row_clip_clear).setOnClickListener {
+            MaterialAlertDialogBuilder(this)
+                .setMessage(R.string.set_clip_clear_confirm)
+                .setNegativeButton(R.string.set_cancel, null)
+                .setPositiveButton(R.string.set_clip_clear) { _, _ ->
+                    lifecycleScope.launch {
+                        ClipStore.clearAll(this@MainActivity)
+                        refreshClipCount()
+                        showSnackbar(getString(R.string.set_clip_clear_done), null, null)
+                    }
+                }
+                .show()
         }
     }
 

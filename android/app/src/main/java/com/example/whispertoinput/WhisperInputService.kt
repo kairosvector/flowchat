@@ -493,6 +493,13 @@ class WhisperInputService : InputMethodService() {
         super.onStartInputView(info, restarting)
         applyNavigationBarStyle()
         whisperKeyboard.reset()
+        // The clipboard is only read while the keyboard is on screen (SPEC_r8 §13.2).
+        whisperKeyboard.onKeyboardShown()
+    }
+
+    override fun onFinishInputView(finishingInput: Boolean) {
+        super.onFinishInputView(finishingInput)
+        whisperKeyboard.onKeyboardHidden()
     }
 
     // Fork change (fork5): tell the system explicitly that this IME
@@ -545,6 +552,7 @@ class WhisperInputService : InputMethodService() {
         super.onWindowHidden()
         whisperTranscriber.stop()
         whisperKeyboard.reset()
+        whisperKeyboard.onKeyboardHidden()
         recorderManager?.stop()
     }
 

@@ -51,6 +51,13 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.widget.TextViewCompat
 import androidx.datastore.preferences.core.edit
+import com.example.whispertoinput.ClipClassifier
+import com.example.whispertoinput.ClipItem
+import com.example.whispertoinput.ClipKind
+import com.example.whispertoinput.ClipList
+import com.example.whispertoinput.ClipPreview
+import com.example.whispertoinput.ClipStore
+import com.example.whispertoinput.PasteChip
 import com.example.whispertoinput.ErrorDisplay
 import com.example.whispertoinput.ErrorMessageMapper
 import com.example.whispertoinput.ErrorStage
@@ -127,6 +134,9 @@ class WhisperKeyboard {
 
     private enum class Tab { Voice, Clip }
 
+    // The two segments of the 📋 tab.
+    private enum class ClipSegment { Clipboard, History }
+
     private enum class ProcessingStep { Transcribing, Polishing }
 
     // Keyboard event listeners. Assignable custom behaviors upon certain UI events (user-operated).
@@ -182,6 +192,30 @@ class WhisperKeyboard {
 
     // History tab: the row that shows its delete button (-1 = none).
     private var deleteIndex: Int = -1
+
+    // Clipboard (SPEC_r8 §13): the segment shown, the masked text that is uncovered for
+    // five seconds, the armed state of "清除" and of the chip's "不要顯示這筆" (3 s each).
+    private var clipSegment: ClipSegment = ClipSegment.Clipboard
+    private var revealedText: String? = null
+    private var clipClearArmed: Boolean = false
+    private var chipDismissArmed: Boolean = false
+    // Clips already pasted from the chip (memory only), and the one the user dismissed.
+    private val pastedKeys = HashSet<String>()
+    private var dismissedKey: String? = null
+    private var clipWatcher: ClipboardWatcher? = null
+    private val revealRunnable = Runnable {
+        revealedText = null
+        if (tab == Tab.Clip && state == UiState.Idle) keyboardView?.context?.let { renderClipTab(it) }
+    }
+    private val clipClearDisarmRunnable = Runnable {
+        clipClearArmed = false
+        if (tab == Tab.Clip && state == UiState.Idle) keyboardView?.context?.let { renderClipTab(it) }
+    }
+    private val chipDisarmRunnable = Runnable {
+        chipDismissArmed = false
+        renderStatus()
+    }
+    private val chipExpiryRunnable = Runnable { renderStatus() }
 
     // The tone list and the current tone (cached; reloaded on every reset()).
     private var toneState: ToneState = ToneState(TonePrompts.defaultTones(), TONE_PRO)
@@ -259,7 +293,14 @@ class WhisperKeyboard {
     private var groupClip: View? = null
     private var groupResult: View? = null
     private var clipList: LinearLayout? = null
-    private var clipEmpty: View? = null
+    private var clipEmpty: TextView? = null
+    private var segClipboard: TextView? = null
+    private var segHistory: TextView? = null
+    private var btnClipClear: TextView? = null
+    private var pasteChip: View? = null
+    private var pasteChipIcon: ImageView? = null
+    private var pasteChipTag: TextView? = null
+    private var pasteChipText: TextView? = null
     private var keyLanguageCol: View? = null
     private var keySettingsCol: View? = null
     private var buttonLanguage: ImageButton? = null
@@ -345,6 +386,13 @@ class WhisperKeyboard {
         groupResult = root.findViewById(R.id.group_result)
         clipList = root.findViewById(R.id.clip_list)
         clipEmpty = root.findViewById(R.id.clip_empty)
+        segClipboard = root.findViewById(R.id.seg_clipboard)
+        segHistory = root.findViewById(R.id.seg_history)
+        btnClipClear = root.findViewById(R.id.btn_clip_clear)
+        pasteChip = root.findViewById(R.id.paste_chip)
+        pasteChipIcon = root.findViewById(R.id.paste_chip_icon)
+        pasteChipTag = root.findViewById(R.id.paste_chip_tag)
+        pasteChipText = root.findViewById(R.id.paste_chip_text)
         keyLanguageCol = root.findViewById(R.id.key_language_col)
         keySettingsCol = root.findViewById(R.id.key_settings_col)
         buttonLanguage = root.findViewById(R.id.btn_language)
@@ -428,6 +476,12 @@ class WhisperKeyboard {
         }
         tabVoice!!.setOnClickListener { onTabVoiceClick() }
         tabClip!!.setOnClickListener { onTabClipClick() }
+        segClipboard!!.setOnClickListener { selectSegment(ClipSegment.Clipboard) }
+        segHistory!!.setOnClickListener { selectSegment(ClipSegment.History) }
+        btnClipClear!!.setOnClickListener { onClipClearClick() }
+        pasteChip!!.setOnClickListener { onPasteChipClick() }
+        pasteChip!!.setOnLongClickListener { onPasteChipLongClick() }
+        clipWatcher = ClipboardWatcher(root.context) { onClipChanged() }
         buttonTone!!.setOnClickListener { onToneKeyClick() }
         scrim!!.setOnClickListener { closeOverlay() }
         promptBack!!.setOnClickListener { onPromptBack() }
@@ -467,6 +521,8 @@ class WhisperKeyboard {
         pendingSuffix = ""
         polishNote = PolishNote.OFF
         deleteIndex = -1
+        clipClearArmed = false
+        clearReveal()
         cardToneId = null
         tab = Tab.Voice
         closeOverlay(animated = false, rerender = false)
@@ -745,7 +801,7 @@ class WhisperKeyboard {
         renderHintRow(context, s)
         renderBottomRow(context, s)
         if (showCard) renderResultCard(context)
-        if (showClip) renderHistory(context)
+        if (showClip) renderClipTab(context) else clearReveal()
 
         view.keepScreenOn = s == UiState.Recording || s == UiState.Processing
     }
@@ -882,6 +938,7 @@ class WhisperKeyboard {
             statusView.fontFeatureSettings = null
             statusView.setTypeface(null, android.graphics.Typeface.NORMAL)
         }
+        renderPasteChip(resolved)
     }
 
     private fun renderMic(context: Context, s: UiState) {
@@ -1162,15 +1219,273 @@ class WhisperKeyboard {
         action.alpha = if (enabled) 1f else 0.38f
     }
 
-    // ---- history tab ----
+    // ---- paste chip (SPEC_r8 §13.1) ----
 
-    private fun renderHistory(context: Context) {
+    // The chip stands in for the (empty) status text while nothing with a higher priority is
+    // shown: no error, recording, processing or short message; only on an idle keyboard.
+    private fun renderPasteChip(resolved: ResolvedStatus) {
+        val chip = pasteChip ?: return
+        val context = chip.context
+        handler.removeCallbacks(chipExpiryRunnable)
+        val item = clipWatcher?.current
+        val now = System.currentTimeMillis()
+        val show = resolved.type == StatusType.DEFAULT && resolved.text.isEmpty() &&
+            state == UiState.Idle && overlay == Overlay.None &&
+            PasteChip.visible(item, now, pastedKeys, dismissedKey)
+        if (!show || item == null) {
+            chip.visibility = View.GONE
+            statusText?.visibility = View.VISIBLE
+            chipDismissArmed = false
+            return
+        }
+        statusText?.visibility = View.INVISIBLE
+        chip.visibility = View.VISIBLE
+        val tag = pasteChipTag
+        val text = pasteChipText
+        val icon = pasteChipIcon
+        if (chipDismissArmed) {
+            // Long press: the chip asks once more before it hides this clip for good.
+            icon?.setImageResource(R.drawable.kb_ic_close)
+            tag?.visibility = View.GONE
+            text?.text = context.getString(R.string.kb_clip_dismiss)
+            chip.contentDescription = context.getString(R.string.kb_clip_dismiss)
+        } else if (item.kind.masked) {
+            icon?.setImageResource(R.drawable.kb_ic_lock)
+            tag?.visibility = View.VISIBLE
+            tag?.text = context.getString(sensitiveLabel(item.kind))
+            text?.text = "••••"
+            // Never the content: TalkBack says it is sensitive, no tooltip.
+            chip.contentDescription = context.getString(R.string.kb_clip_paste_sensitive_cd)
+        } else {
+            icon?.setImageResource(R.drawable.kb_ic_paste)
+            tag?.visibility = View.GONE
+            val preview = ClipPreview.of(item.text)
+            text?.text = preview
+            chip.contentDescription = context.getString(R.string.kb_clip_paste_cd, preview)
+        }
+        handler.postDelayed(chipExpiryRunnable, maxOf(PasteChip.WINDOW_MILLIS - (now - item.timestampMillis), 0L) + 100L)
+    }
+
+    @StringRes
+    private fun sensitiveLabel(kind: ClipKind): Int = when (kind) {
+        ClipKind.CARD -> R.string.kb_sens_card
+        ClipKind.PASSWORD -> R.string.kb_sens_password
+        ClipKind.ID_NUMBER -> R.string.kb_sens_id
+        else -> R.string.kb_sens_generic
+    }
+
+    private fun onPasteChipClick() {
+        val item = clipWatcher?.current ?: return
+        val context = keyboardView?.context ?: return
+        haptic(pasteChip, HapticFeedbackConstants.KEYBOARD_TAP)
+        handler.removeCallbacks(chipDisarmRunnable)
+        if (chipDismissArmed) {
+            // Second step of "不要顯示這筆": remember it so this clip never comes back.
+            val key = PasteChip.key(item.text, item.timestampMillis)
+            chipDismissArmed = false
+            dismissedKey = key
+            CoroutineScope(Dispatchers.Main).launch { ClipStore.setDismissed(context, key) }
+            renderStatus()
+            return
+        }
+        pastedKeys.add(PasteChip.key(item.text, item.timestampMillis))
+        onInsertText(item.text)          // the whole text, never the shortened preview
+        renderStatus()
+    }
+
+    private fun onPasteChipLongClick(): Boolean {
+        if (state != UiState.Idle || clipWatcher?.current == null) return false
+        haptic(pasteChip, HapticFeedbackConstants.LONG_PRESS)
+        chipDismissArmed = true
+        renderStatus()
+        handler.removeCallbacks(chipDisarmRunnable)
+        handler.postDelayed(chipDisarmRunnable, 3000L)
+        return true
+    }
+
+    private fun onClipChanged() {
+        renderStatus()
+        if (tab == Tab.Clip && state == UiState.Idle) renderClipTab(keyboardView?.context ?: return)
+    }
+
+    /** The keyboard appeared: start reading the clipboard (the listener is removed in [onKeyboardHidden]). */
+    fun onKeyboardShown() {
+        val context = keyboardView?.context ?: return
+        CoroutineScope(Dispatchers.Main).launch { dismissedKey = ClipStore.dismissedKey(context) }
+        clipWatcher?.start()
+    }
+
+    /** The keyboard went away: stop reading, forget masked clips and any revealed text. */
+    fun onKeyboardHidden() {
+        clipWatcher?.stop()
+        clearReveal()
+        chipDismissArmed = false
+    }
+
+    // ---- 📋 tab: the clipboard and the transcription history ----
+
+    private fun clipboardItems(): List<ClipItem> =
+        ClipList.build(clipWatcher?.current, clipWatcher?.history.orEmpty(), ClipStore.memory, System.currentTimeMillis())
+
+    private fun styleSegment(view: TextView?, selected: Boolean) {
+        view ?: return
+        val context = view.context
+        view.setBackgroundResource(if (selected) R.drawable.kb_bg_chip_selected else R.drawable.kb_bg_chip_outline)
+        view.setTextColor(color(context, if (selected) R.color.kb_on_tertiary_container else R.color.kb_on_surface))
+        view.setTypeface(null, if (selected) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+    }
+
+    private fun selectSegment(segment: ClipSegment) {
+        if (clipSegment == segment) return
+        haptic(if (segment == ClipSegment.Clipboard) segClipboard else segHistory, HapticFeedbackConstants.KEYBOARD_TAP)
+        clipSegment = segment
+        clearReveal()
+        deleteIndex = -1
+        clipClearArmed = false
+        keyboardView?.context?.let { renderClipTab(it) }
+    }
+
+    private fun clearReveal() {
+        handler.removeCallbacks(revealRunnable)
+        revealedText = null
+    }
+
+    private fun renderClipTab(context: Context) {
+        styleSegment(segClipboard, clipSegment == ClipSegment.Clipboard)
+        styleSegment(segHistory, clipSegment == ClipSegment.History)
+        btnClipClear?.visibility = if (clipSegment == ClipSegment.Clipboard) View.VISIBLE else View.GONE
+        btnClipClear?.text = context.getString(if (clipClearArmed) R.string.kb_clip_clear_confirm else R.string.kb_clip_clear)
         val list = clipList ?: return
         list.removeAllViews()
-        val records = TranscriptionHistory.loadAll(context)
-        clipEmpty?.visibility = if (records.isEmpty()) View.VISIBLE else View.GONE
-        records.forEachIndexed { index, record -> list.addView(historyRow(context, index, record)) }
+        if (clipSegment == ClipSegment.History) {
+            val records = TranscriptionHistory.loadAll(context)
+            clipEmpty?.setText(R.string.kb_history_empty)
+            clipEmpty?.visibility = if (records.isEmpty()) View.VISIBLE else View.GONE
+            records.forEachIndexed { index, record -> list.addView(historyRow(context, index, record)) }
+        } else {
+            val items = clipboardItems()
+            clipEmpty?.setText(R.string.kb_clip_empty)
+            clipEmpty?.visibility = if (items.isEmpty()) View.VISIBLE else View.GONE
+            items.forEach { list.addView(clipRow(context, it)) }
+        }
     }
+
+    private fun onClipClearClick() {
+        val context = keyboardView?.context ?: return
+        haptic(btnClipClear, HapticFeedbackConstants.KEYBOARD_TAP)
+        handler.removeCallbacks(clipClearDisarmRunnable)
+        if (!clipClearArmed) {
+            // First press only asks; the second one within three seconds clears.
+            clipClearArmed = true
+            renderClipTab(context)
+            handler.postDelayed(clipClearDisarmRunnable, 3000L)
+            return
+        }
+        clipClearArmed = false
+        clearReveal()
+        CoroutineScope(Dispatchers.Main).launch {
+            ClipStore.clearAll(context)
+            clipWatcher?.reloadHistory()
+            renderClipTab(context)
+        }
+    }
+
+    private fun clipRow(context: Context, item: ClipItem): View {
+        val density = context.resources.displayMetrics.density
+        val masked = item.kind.masked
+        val revealed = masked && item.text == revealedText
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundResource(R.drawable.kb_bg_key)
+            setPadding((12 * density).toInt(), 0, (masked.let { if (it) 4 else 12 } * density).toInt(), 0)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, (44 * density).toInt()
+            ).apply { bottomMargin = (4 * density).toInt() }
+            isClickable = true
+            isFocusable = true
+            // A masked row never says what it holds, not even to TalkBack.
+            contentDescription = if (masked) {
+                context.getString(R.string.kb_clip_hidden_cd, context.getString(sensitiveLabel(item.kind)))
+            } else {
+                item.text
+            }
+        }
+        row.addView(ImageView(context).apply {
+            setImageResource(
+                when {
+                    masked -> R.drawable.kb_ic_lock
+                    item.kind == ClipKind.URL -> R.drawable.kb_ic_link
+                    else -> R.drawable.kb_ic_paste
+                }
+            )
+            imageTintList = tint(context, R.color.kb_on_surface_variant)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            layoutParams = LinearLayout.LayoutParams((18 * density).toInt(), (18 * density).toInt())
+        })
+        if (masked && !revealed) {
+            row.addView(TextView(context).apply {
+                text = context.getString(sensitiveLabel(item.kind))
+                setTextColor(color(context, R.color.kb_on_surface_variant))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f * historyScale(context))
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setBackgroundResource(R.drawable.kb_bg_label)
+                setPadding((6 * density).toInt(), (2 * density).toInt(), (6 * density).toInt(), (2 * density).toInt())
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { marginStart = (10 * density).toInt() }
+            })
+        }
+        row.addView(TextView(context).apply {
+            text = if (masked && !revealed) "••••" else item.text.replace(Regex("\\s+"), " ")
+            setTextColor(color(context, R.color.kb_on_surface))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f * historyScale(context))
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO.takeIf { masked } ?: View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                .apply { marginStart = (10 * density).toInt() }
+        })
+        row.addView(TextView(context).apply {
+            text = timeLabel(context, item.timestampMillis)
+            setTextColor(color(context, R.color.kb_on_surface_variant))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f * historyScale(context))
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = (8 * density).toInt() }
+        })
+        if (masked) {
+            // 40 x 40: shows the text for five seconds, then it is covered again.
+            row.addView(ImageButton(context).apply {
+                setImageResource(R.drawable.kb_ic_visibility)
+                imageTintList = tint(context, R.color.kb_on_surface_variant)
+                background = null
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                setPadding((10 * density).toInt(), (10 * density).toInt(), (10 * density).toInt(), (10 * density).toInt())
+                contentDescription = context.getString(R.string.kb_clip_reveal)
+                layoutParams = LinearLayout.LayoutParams((40 * density).toInt(), (40 * density).toInt())
+                setOnClickListener {
+                    haptic(it, HapticFeedbackConstants.KEYBOARD_TAP)
+                    handler.removeCallbacks(revealRunnable)
+                    revealedText = item.text
+                    renderClipTab(context)
+                    handler.postDelayed(revealRunnable, 5000L)
+                }
+            })
+        }
+        row.setOnClickListener {
+            haptic(it, HapticFeedbackConstants.KEYBOARD_TAP)
+            if (state == UiState.Inserted) collapseInserted()
+            if (item.isCurrent) pastedKeys.add(PasteChip.key(item.text, item.timestampMillis))
+            onInsertText(item.text)
+            renderClipTab(context)
+        }
+        return row
+    }
+
+    // ---- transcription history rows (the "紀錄" segment) ----
 
     private fun historyRow(context: Context, index: Int, record: TranscriptionRecord): View {
         val density = context.resources.displayMetrics.density
@@ -1215,7 +1530,7 @@ class WhisperKeyboard {
                 setOnClickListener {
                     TranscriptionHistory.delete(context, index)
                     deleteIndex = -1
-                    renderHistory(context)
+                    renderClipTab(context)
                 }
             })
         } else {
@@ -1233,12 +1548,12 @@ class WhisperKeyboard {
             deleteIndex = -1
             if (state == UiState.Inserted) collapseInserted()
             onInsertText(text)
-            renderHistory(context)
+            renderClipTab(context)
         }
         row.setOnLongClickListener {
             haptic(it, HapticFeedbackConstants.LONG_PRESS)
             deleteIndex = if (deleteIndex == index) -1 else index
-            renderHistory(context)
+            renderClipTab(context)
             true
         }
         return row
@@ -1450,6 +1765,10 @@ class WhisperKeyboard {
         collapseInserted()
         tab = Tab.Clip
         deleteIndex = -1
+        clipClearArmed = false
+        clearReveal()
+        // The clipboard first; when it holds nothing, the transcription history.
+        clipSegment = if (clipboardItems().isNotEmpty()) ClipSegment.Clipboard else ClipSegment.History
         render()
     }
 
