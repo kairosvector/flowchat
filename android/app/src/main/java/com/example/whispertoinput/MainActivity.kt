@@ -781,9 +781,12 @@ class MainActivity : AppCompatActivity() {
     private fun setupSwitches(prefs: Preferences) {
         fun bind(rowId: Int, key: Preferences.Key<Boolean>, default: Boolean, after: (Boolean) -> Unit = {}) {
             val sw = switchOf(rowId)
+            // The value always comes from the settings, never from a saved view state
+            // (a stale restored state must not look like a tap and rewrite the tone).
+            sw.isSaveEnabled = false
             sw.isChecked = prefs[key] ?: default
             sw.setOnCheckedChangeListener { _, checked ->
-                if (!settingsLoaded) return@setOnCheckedChangeListener
+                if (!settingsLoaded || syncingSwitch) return@setOnCheckedChangeListener
                 lifecycleScope.launch { save(key, checked) }
                 after(checked)
             }
@@ -849,9 +852,21 @@ class MainActivity : AppCompatActivity() {
         reloadTones()
     }
 
+    // True while the page itself moves the AI switch (it is not a tap then).
+    private var syncingSwitch = false
+
     private fun reloadTones() {
         lifecycleScope.launch {
             val state = ToneStore.load(this@MainActivity)
+            // The tone may have been changed on the keyboard while this page was away.
+            val aiSwitch = switchOf(R.id.row_ai_enable)
+            if (settingsLoaded && aiSwitch.isChecked != state.polishOn) {
+                syncingSwitch = true
+                aiSwitch.isChecked = state.polishOn
+                syncingSwitch = false
+                polishEnabled = state.polishOn
+                applyAiVisibility()
+            }
             toneAdapter.submit(state.tones, if (state.polishOn) state.currentId else null)
             val canAdd = ToneRules.canAdd(state.tones.size)
             btnToneAdd.isEnabled = canAdd

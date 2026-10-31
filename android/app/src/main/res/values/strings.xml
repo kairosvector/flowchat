@@ -231,7 +231,7 @@
     <string name="st_language_custom">語言代碼</string>
     <string name="st_advanced">進階</string>
     <string name="st_advanced_stt_hint">· 服務網址</string>
-    <string name="st_advanced_ai_hint">· 網址、潤飾指令</string>
+    <string name="st_advanced_ai_hint">· 網址、潤飾語氣</string>
     <string name="st_advanced_expand">展開進階設定</string>
     <string name="st_advanced_collapse">收合進階設定</string>
 
@@ -243,11 +243,6 @@
     <string name="st_ai_key_placeholder">沿用語音辨識的 Key</string>
     <string name="st_ai_key_helper">留空就用語音辨識那組 Key</string>
     <string name="st_ai_endpoint_helper">需要支援 OpenAI chat completions 格式</string>
-    <string name="st_ai_prompt">潤飾指令</string>
-    <string name="st_ai_prompt_modified">已修改</string>
-    <string name="st_ai_prompt_reset">重設為預設</string>
-    <string name="st_ai_prompt_reset_title">重設潤飾指令？</string>
-    <string name="st_ai_prompt_reset_message">會用預設指令覆蓋你改過的內容，並立即儲存。</string>
 
     <!-- behavior card -->
     <string name="st_auto_start">開鍵盤就開始錄音</string>
@@ -275,7 +270,6 @@
     <string name="st_err_key_required">這個服務需要 API Key</string>
     <string name="st_err_model">請填模型名稱</string>
     <string name="st_err_language">語言代碼是 2–3 個英文小寫字母，例如 ja</string>
-    <string name="st_err_prompt">潤飾指令不能空白</string>
 
     <!-- connection test -->
     <string name="st_test">測試連線</string>

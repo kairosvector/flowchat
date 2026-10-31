@@ -63,7 +63,7 @@
             android:background="@drawable/kb_bg_tab"
             android:contentDescription="@string/kb_tab_voice"
             android:src="@drawable/kb_ic_mic"
-            app:tint="@color/kb_color_tab" />
+            android:tint="@color/kb_color_tab" />
 
         <ImageButton
             android:id="@+id/tab_emoji"
@@ -72,7 +72,7 @@
             android:contentDescription="@string/kb_tab_emoji"
             android:src="@drawable/kb_ic_emoji"
             android:visibility="invisible"
-            app:tint="@color/kb_color_tab" />
+            android:tint="@color/kb_color_tab" />
 
         <ImageButton
             android:id="@+id/tab_clip"
@@ -80,7 +80,7 @@
             android:background="@drawable/kb_bg_tab"
             android:contentDescription="@string/kb_tab_clip"
             android:src="@drawable/kb_ic_paste"
-            app:tint="@color/kb_color_tab" />
+            android:tint="@color/kb_color_tab" />
 
         <FrameLayout
             android:id="@+id/status_slot"
@@ -120,7 +120,7 @@
                 android:layout_height="14dp"
                 android:importantForAccessibility="no"
                 android:src="@drawable/kb_ic_sparkle_state"
-                app:tint="@color/kb_color_top_ai" />
+                android:tint="@color/kb_color_top_ai" />
 
             <TextView
                 android:id="@+id/tone_label"
@@ -687,7 +687,7 @@
                 android:layout_height="20dp"
                 android:importantForAccessibility="no"
                 android:src="@drawable/kb_ic_space"
-                app:tint="@color/kb_on_surface_variant" />
+                android:tint="@color/kb_on_surface_variant" />
 
             <TextView
                 android:id="@+id/label_space"
@@ -712,7 +712,7 @@
             android:paddingBottom="15dp"
             android:scaleType="fitCenter"
             android:src="@drawable/kb_ic_enter"
-            app:tint="@color/kb_on_primary_container" />
+            android:tint="@color/kb_on_primary_container" />
     </LinearLayout>
 </LinearLayout>
 
@@ -782,7 +782,7 @@
                 android:padding="8dp"
                 android:scaleType="fitCenter"
                 android:src="@drawable/kb_ic_arrow_back"
-                app:tint="@color/kb_on_surface" />
+                android:tint="@color/kb_on_surface" />
 
             <TextView
                 android:layout_width="0dp"
@@ -814,7 +814,7 @@
                     android:layout_height="16dp"
                     android:importantForAccessibility="no"
                     android:src="@drawable/kb_ic_edit"
-                    app:tint="@color/kb_primary" />
+                    android:tint="@color/kb_primary" />
 
                 <TextView
                     android:layout_width="wrap_content"
