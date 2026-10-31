@@ -38,9 +38,12 @@ private const val MEDIA_RECORDER_CONSTRUCTOR_DEPRECATION_API_LEVEL = 31
 
 class RecorderManager(context: Context) {
     companion object {
+        // Fork6 round 6: only the microphone is needed. POST_NOTIFICATIONS used
+        // to be listed here, but the app never posts a notification (no
+        // NotificationManager / foreground service anywhere), and a missing
+        // notification permission made WhisperInputService refuse to record.
         fun requiredPermissions() = arrayOf(
             Manifest.permission.RECORD_AUDIO,
-            Manifest.permission.POST_NOTIFICATIONS,
         )
     }
 

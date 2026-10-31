@@ -1,19 +1,15 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-   Sample data extraction rules file; uncomment and customize as necessary.
-   See https://developer.android.com/about/versions/12/backup-restore#xml-changes
-   for details.
--->
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Fork6 round 6: the settings DataStore holds the API keys, so it stays on
+     this phone: it is excluded from cloud backup and from device-to-device
+     transfer (Android 12+). The DataStore file lives in filesDir:
+     <filesDir>/datastore/settings.preferences_pb (the whole datastore/
+     directory is excluded so its temporary files are covered too).
+     Everything else is still backed up. -->
 <data-extraction-rules>
     <cloud-backup>
-        <!-- TODO: Use <include> and <exclude> to control what is backed up.
-        <include .../>
-        <exclude .../>
-        -->
+        <exclude domain="file" path="datastore/" />
     </cloud-backup>
-    <!--
     <device-transfer>
-        <include .../>
-        <exclude .../>
+        <exclude domain="file" path="datastore/" />
     </device-transfer>
-    -->
 </data-extraction-rules>

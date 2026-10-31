@@ -40,6 +40,19 @@ object PolishPromptMigration {
     private const val PREFS_NAME = "whisper_input_prefs"
     private const val KEY_PROMPT_VERSION = "polish_prompt_version"
 
+    /**
+     * Records that the saved prompt is up to date (the user saved or reset it
+     * on the settings page), so the one-time migration never touches it.
+     */
+    fun markCurrent(context: Context) {
+        try {
+            context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit().putInt(KEY_PROMPT_VERSION, POLISH_PROMPT_VERSION).apply()
+        } catch (_: Exception) {
+            // Best effort.
+        }
+    }
+
     /** Safe to call from any coroutine and any number of times. */
     suspend fun runIfNeeded(context: Context) {
         try {
