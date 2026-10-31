@@ -46,6 +46,10 @@ class BackspaceButton(context: Context, attrs: AttributeSet) :
         backspaceCallback = callback
         wordBackspaceCallback = wordCallback
         setOnTouchListener { _, event ->
+            if (!isEnabled) {
+                abortLongPressDetector()
+                return@setOnTouchListener false
+            }
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     performClick()
@@ -58,10 +62,27 @@ class BackspaceButton(context: Context, attrs: AttributeSet) :
         }
     }
 
+    override fun setEnabled(enabled: Boolean) {
+        super.setEnabled(enabled)
+        if (!enabled) {
+            abortLongPressDetector()
+        }
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        abortLongPressDetector()
+    }
+
+    fun cancelContinuousDelete() {
+        abortLongPressDetector()
+    }
+
     // Override this for accessibility.
     // performClick() will be called either in appropriate touch events,
     // or when accessibility tools demand its invocation
     override fun performClick(): Boolean {
+        if (!isEnabled) return false
         super.performClick()
         backspaceCallback()
         return true

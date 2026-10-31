@@ -89,8 +89,7 @@ class WhisperInputService : InputMethodService() {
     }
 
     private fun transcriptionExceptionCallback(message: String) {
-        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
-        whisperKeyboard.reset()
+        whisperKeyboard.showErrorStatus(message)
     }
 
     private suspend fun updateAudioFormat() {

@@ -38,8 +38,10 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
-import android.widget.Toast
 import androidx.annotation.ColorRes
+import androidx.appcompat.widget.TooltipCompat
+import androidx.core.view.AccessibilityDelegateCompat
+import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.core.content.ContextCompat
@@ -197,24 +199,28 @@ class WhisperKeyboard {
             val seconds = ((SystemClock.uptimeMillis() - recordingStartMs) / 1000).toInt()
             if (seconds != shownSeconds) {
                 shownSeconds = seconds
-                previewTimer?.text = formatTimer(seconds)
+                renderStatus()
             }
             handler.postDelayed(this, WAVEFORM_TICK_MS)
         }
     }
 
+    // Status resolver and handlers
+    private val statusResolver = StatusResolver()
+    private val clearTransientRunnable = Runnable {
+        statusResolver.clearTransient()
+        renderStatus()
+    }
+    private val clearErrorRunnable = Runnable {
+        statusResolver.clearError()
+        renderStatus()
+    }
+
     // ---- views ----
     private var keyboardView: View? = null
-    private var previewChip: LinearLayout? = null
-    private var previewTag: TextView? = null
-    private var recordingDot: View? = null
-    private var previewText: TextView? = null
-    private var previewTimer: TextView? = null
-    private var buttonPreviewInsert: ImageButton? = null
-    private var buttonPolishToggle: LinearLayout? = null
-    private var polishIcon: ImageView? = null
-    private var polishLabel: TextView? = null
-    private var polishSwitch: ImageView? = null
+    private var buttonLast: ImageButton? = null
+    private var buttonPolishToggle: ImageButton? = null
+    private var statusText: TextView? = null
     private var buttonSettings: ImageButton? = null
 
     private var groupMain: View? = null
@@ -285,16 +291,9 @@ class WhisperKeyboard {
         keyboardView = root
         offerImeSwitch = shouldOfferImeSwitch
 
-        previewChip = root.findViewById(R.id.preview_chip)
-        previewTag = root.findViewById(R.id.preview_tag)
-        recordingDot = root.findViewById(R.id.recording_dot)
-        previewText = root.findViewById(R.id.preview_text)
-        previewTimer = root.findViewById(R.id.preview_timer)
-        buttonPreviewInsert = root.findViewById(R.id.btn_preview_insert)
+        buttonLast = root.findViewById(R.id.btn_last)
         buttonPolishToggle = root.findViewById(R.id.btn_polish_toggle)
-        polishIcon = root.findViewById(R.id.polish_icon)
-        polishLabel = root.findViewById(R.id.polish_label)
-        polishSwitch = root.findViewById(R.id.polish_switch)
+        statusText = root.findViewById(R.id.status_text)
         buttonSettings = root.findViewById(R.id.btn_settings)
 
         groupMain = root.findViewById(R.id.group_main)
@@ -370,16 +369,27 @@ class WhisperKeyboard {
             { clearInserted(); this.onButtonBackspace() },
             { clearInserted(); this.onButtonBackspaceWord() }
         )
-        buttonSettings!!.setOnClickListener { this.onOpenSettings() }
-        buttonPolishToggle!!.setOnClickListener { onButtonPolishToggleClick() }
-        buttonLanguage!!.setOnClickListener { onLanguageClick() }
-        buttonHistory!!.setOnClickListener { onHistoryClick() }
-        buttonPreviewInsert!!.setOnClickListener {
+        buttonSettings!!.setOnClickListener {
+            statusResolver.clearError()
+            this.onOpenSettings()
+        }
+        buttonLast!!.setOnClickListener {
+            statusResolver.clearError()
             clearInserted()
             lastResultText?.let { this.onInsertText(it) }
         }
-        // Tapping the preview text still copies the last result (as before).
-        previewText!!.setOnClickListener { if (state == UiState.Idle) copyText(lastResultText) }
+        updateLastTooltip()
+        ViewCompat.setAccessibilityDelegate(buttonPolishToggle!!, object : AccessibilityDelegateCompat() {
+            override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfoCompat) {
+                super.onInitializeAccessibilityNodeInfo(host, info)
+                info.className = "android.widget.Switch"
+                info.isCheckable = true
+                info.isChecked = polishEnabled
+            }
+        })
+        buttonPolishToggle!!.setOnClickListener { onButtonPolishToggleClick() }
+        buttonLanguage!!.setOnClickListener { onLanguageClick() }
+        buttonHistory!!.setOnClickListener { onHistoryClick() }
         buttonRetry!!.setOnClickListener { onButtonRetryClick() }
         actionInsert!!.setOnClickListener { onActionInsert() }
         actionRepolish!!.setOnClickListener { onActionRepolish() }
@@ -420,6 +430,36 @@ class WhisperKeyboard {
         refreshLanguage()
     }
 
+    fun showStatus(@StringRes resId: Int, durationMs: Long = 2000L) {
+        val context = keyboardView?.context ?: return
+        showStatus(context.getString(resId), durationMs)
+    }
+
+    fun showStatus(message: String, durationMs: Long = 2000L) {
+        statusResolver.setTransient(message, durationMs, SystemClock.uptimeMillis())
+        renderStatus()
+        handler.removeCallbacks(clearTransientRunnable)
+        handler.postDelayed(clearTransientRunnable, durationMs)
+    }
+
+    fun showErrorStatus(@StringRes resId: Int, durationMs: Long = 4000L) {
+        val context = keyboardView?.context ?: return
+        showErrorStatus(context.getString(resId), durationMs)
+    }
+
+    fun showErrorStatus(message: String, durationMs: Long = 4000L) {
+        handler.removeCallbacks(ticker)
+        repolishing = false
+        stagedRaw = null
+        forgetInserted()
+        refreshLastRecord()
+        state = UiState.Idle
+        statusResolver.setError(message, durationMs, SystemClock.uptimeMillis())
+        render()
+        handler.removeCallbacks(clearErrorRunnable)
+        handler.postDelayed(clearErrorRunnable, durationMs)
+    }
+
     /**
      * The transcription finished and [insertedText] was committed to the
      * editor. [raw] and [polished] are handed over directly by the
@@ -440,7 +480,14 @@ class WhisperKeyboard {
         repolishing = false
         stagedRaw = null
         resultScroll?.scrollTo(0, 0)
+        updateLastTooltip()
         setState(UiState.Result)
+        val ctx = keyboardView?.context
+        if (inserted != null && ctx != null) {
+            showStatus(ctx.getString(R.string.kb_action_inserted), 2000L)
+        } else if (note == PolishNote.FAILED && ctx != null) {
+            showStatus(ctx.getString(R.string.kb_toast_repolish_failed), 2000L)
+        }
     }
 
     /** Stage 1: STT finished, show the raw text in the preview chip. */
@@ -513,6 +560,7 @@ class WhisperKeyboard {
     }
 
     private fun startRecording() {
+        statusResolver.clearError()
         forgetInserted()
         setState(UiState.Recording)
         onStartRecording()
@@ -560,61 +608,91 @@ class WhisperKeyboard {
         view.keepScreenOn = s == UiState.Recording || s == UiState.Processing
     }
 
+    private fun setKeyEnabled(view: View?, enabled: Boolean) {
+        view ?: return
+        view.isEnabled = enabled
+        view.alpha = if (enabled) 1f else 0.38f
+    }
+
+    private fun updateLastTooltip() {
+        buttonLast?.let { btn ->
+            TooltipCompat.setTooltipText(btn, lastResultText?.take(40))
+        }
+    }
+
     private fun renderTopRow(context: Context, s: UiState) {
-        val chip = previewChip ?: return
-        val tag = previewTag ?: return
-        val text = previewText ?: return
+        val last = buttonLast
+        val polish = buttonPolishToggle
+        val backspace = buttonBackspace
+
+        val hasLast = !lastResultText.isNullOrEmpty()
         when (s) {
             UiState.Idle -> {
-                chip.setBackgroundResource(R.drawable.kb_bg_chip)
-                tag.visibility = View.VISIBLE
-                tag.setText(R.string.kb_tag_last)
-                recordingDot?.visibility = View.GONE
-                previewTimer?.visibility = View.GONE
-                text.text = lastResultText ?: context.getString(R.string.kb_no_last_result)
-                text.setTextColor(color(context, R.color.kb_on_surface))
-                buttonPreviewInsert?.visibility =
-                    if (lastResultText != null) View.VISIBLE else View.GONE
+                setKeyEnabled(last, hasLast)
+                setKeyEnabled(polish, true)
+                setKeyEnabled(backspace, true)
             }
-
             UiState.Recording -> {
-                chip.setBackgroundResource(R.drawable.kb_bg_chip_recording)
-                tag.visibility = View.GONE
-                recordingDot?.visibility = View.VISIBLE
-                previewTimer?.visibility = View.VISIBLE
-                previewTimer?.text = formatTimer(0)
-                text.setText(R.string.kb_recording_label)
-                text.setTextColor(color(context, R.color.kb_recording))
-                buttonPreviewInsert?.visibility = View.GONE
+                setKeyEnabled(last, false)
+                setKeyEnabled(polish, true)
+                setKeyEnabled(backspace, false)
             }
-
             UiState.Processing -> {
-                chip.setBackgroundResource(R.drawable.kb_bg_chip)
-                tag.visibility = View.VISIBLE
-                tag.setText(R.string.kb_tag_processing)
-                recordingDot?.visibility = View.GONE
-                previewTimer?.visibility = View.GONE
-                text.text = stagedRaw ?: context.getString(
-                    if (processingStep == ProcessingStep.Polishing) R.string.kb_step_polishing
-                    else R.string.kb_step_transcribing
-                )
-                text.setTextColor(color(context, R.color.kb_on_surface))
-                buttonPreviewInsert?.visibility = View.GONE
+                setKeyEnabled(last, false)
+                setKeyEnabled(polish, false)
+                setKeyEnabled(backspace, false)
             }
-
             UiState.Result -> {
-                chip.setBackgroundResource(R.drawable.kb_bg_chip)
-                tag.visibility = View.VISIBLE
-                tag.setText(R.string.kb_tag_done)
-                recordingDot?.visibility = View.GONE
-                previewTimer?.visibility = View.GONE
-                text.setText(
-                    if (insertedText != null) R.string.kb_result_hint_inserted
-                    else R.string.kb_result_hint_insert
-                )
-                text.setTextColor(color(context, R.color.kb_on_surface))
-                buttonPreviewInsert?.visibility = View.GONE
+                setKeyEnabled(last, hasLast)
+                setKeyEnabled(polish, true)
+                setKeyEnabled(backspace, true)
             }
+        }
+        renderStatus()
+    }
+
+    private fun renderStatus() {
+        val statusView = statusText ?: return
+        val context = statusView.context
+        val now = SystemClock.uptimeMillis()
+
+        val recordingText = "● %s %s".format(
+            context.getString(R.string.kb_listening),
+            formatTimer(shownSeconds.coerceAtLeast(0))
+        )
+        val processingText = when {
+            processingStep == ProcessingStep.Polishing && !stagedRaw.isNullOrEmpty() -> stagedRaw!!
+            processingStep == ProcessingStep.Polishing -> context.getString(R.string.kb_step_polishing)
+            else -> context.getString(R.string.kb_step_transcribing)
+        }
+        val defaultText = when (state) {
+            UiState.Result -> if (insertedText == null) context.getString(R.string.kb_result_hint_insert) else ""
+            else -> ""
+        }
+
+        val resolved = statusResolver.resolve(
+            isRecording = state == UiState.Recording,
+            recordingTimerText = recordingText,
+            isProcessing = state == UiState.Processing,
+            processingText = processingText,
+            defaultText = defaultText,
+            now = now
+        )
+
+        statusView.text = resolved.text
+        if (resolved.isError || resolved.isRecording) {
+            statusView.setTextColor(color(context, R.color.kb_recording))
+            if (resolved.isRecording) {
+                statusView.fontFeatureSettings = "tnum"
+                statusView.setTypeface(null, android.graphics.Typeface.BOLD)
+            } else {
+                statusView.fontFeatureSettings = null
+                statusView.setTypeface(null, android.graphics.Typeface.NORMAL)
+            }
+        } else {
+            statusView.setTextColor(color(context, R.color.kb_on_surface_variant))
+            statusView.fontFeatureSettings = null
+            statusView.setTypeface(null, android.graphics.Typeface.NORMAL)
         }
     }
 
@@ -979,6 +1057,7 @@ class WhisperKeyboard {
     // =====================================================================
 
     private fun onLeftActionClick() {
+        statusResolver.clearError()
         when (state) {
             UiState.Idle -> onSwitchIme()
             UiState.Recording -> cancelRecording()
@@ -1009,6 +1088,7 @@ class WhisperKeyboard {
     }
 
     private fun onButtonSpaceBarClick() {
+        statusResolver.clearError()
         // Recording -> Start transcribing (with a whitespace included)
         // else -> invokes onSpaceBar
         if (state == UiState.Recording) {
@@ -1021,6 +1101,7 @@ class WhisperKeyboard {
     }
 
     private fun onButtonEnterClick() {
+        statusResolver.clearError()
         // Recording -> Start transcribing (with a newline included)
         // else -> invokes onEnter
         if (state == UiState.Recording) {
@@ -1044,7 +1125,7 @@ class WhisperKeyboard {
         if (state != UiState.Idle) return
         refreshLastRecord()
         if (rawResultText.isNullOrEmpty()) {
-            toast(R.string.kb_toast_no_history)
+            showStatus(R.string.kb_toast_no_history, 2000L)
             return
         }
         // Showing the last result again: nothing of it is in the editor
@@ -1073,6 +1154,10 @@ class WhisperKeyboard {
         replacedFrom = null
         replacedFromBase = null
         render()
+        val context = keyboardView?.context
+        if (context != null) {
+            showStatus(context.getString(R.string.kb_action_inserted), 2000L)
+        }
     }
 
     /**
@@ -1114,6 +1199,7 @@ class WhisperKeyboard {
         // back (it does not delete the whole thing). The card then still
         // shows the polished text and "insert" swaps it in again.
         val original = replacedFrom
+        val context = keyboardView?.context
         if (original != null) {
             val restored = onReplaceInserted(inserted, original)
             if (restored) {
@@ -1123,10 +1209,10 @@ class WhisperKeyboard {
                 replacedFromBase = null
                 insertedCursor = -1
                 selectionGraceUntil = SystemClock.uptimeMillis() + SELECTION_GRACE_MS
-                toast(R.string.kb_toast_restored)
+                if (context != null) showStatus(context.getString(R.string.kb_toast_restored), 2000L)
             } else {
                 forgetInserted()
-                toast(R.string.kb_toast_undo_failed)
+                if (context != null) showStatus(context.getString(R.string.kb_toast_undo_failed), 2000L)
             }
             render()
             return
@@ -1136,7 +1222,9 @@ class WhisperKeyboard {
         // the text afterwards, so undo is disabled.
         val removed = onUndoInsert(inserted)
         forgetInserted()
-        toast(if (removed) R.string.kb_toast_undone else R.string.kb_toast_undo_failed)
+        if (context != null) {
+            showStatus(context.getString(if (removed) R.string.kb_toast_undone else R.string.kb_toast_undo_failed), 2000L)
+        }
         render()
     }
 
@@ -1185,7 +1273,8 @@ class WhisperKeyboard {
                     // Still nothing polished: keep saying so on the card.
                     polishNote = PolishNote.FAILED
                 } else {
-                    toast(R.string.kb_toast_repolish_failed)
+                    val context = keyboardView?.context
+                    if (context != null) showStatus(context.getString(R.string.kb_toast_repolish_failed), 2000L)
                 }
             } else {
                 polishedResultText = polished
@@ -1210,13 +1299,10 @@ class WhisperKeyboard {
         val toggle = buttonPolishToggle ?: return
         val context = toggle.context
         val on = polishEnabled
-        toggle.setBackgroundResource(if (on) R.drawable.kb_bg_pill_on else R.drawable.kb_bg_pill_off)
-        polishSwitch?.setImageResource(if (on) R.drawable.kb_switch_on else R.drawable.kb_switch_off)
-        val content = color(context, if (on) R.color.kb_on_tertiary_container else R.color.kb_on_surface_variant)
-        polishLabel?.setTextColor(content)
-        polishIcon?.imageTintList = ColorStateList.valueOf(content)
-        toggle.contentDescription = context.getString(
-            if (on) R.string.polish_toggle_on else R.string.polish_toggle_off
+        toggle.isActivated = on
+        ViewCompat.setStateDescription(
+            toggle,
+            context.getString(if (on) R.string.kb_state_open else R.string.kb_state_closed)
         )
     }
 
@@ -1243,6 +1329,10 @@ class WhisperKeyboard {
         val newValue = !polishEnabled
         polishEnabled = newValue
         updatePolishToggleButton()
+        showStatus(
+            context.getString(if (newValue) R.string.kb_status_polish_on else R.string.kb_status_polish_off),
+            1500L
+        )
         CoroutineScope(Dispatchers.Main).launch {
             try {
                 context.dataStore.edit { settings ->
@@ -1307,7 +1397,7 @@ class WhisperKeyboard {
         languageCode = next
         val label = languageLabel(context, next)
         labelLanguage?.text = label
-        Toast.makeText(context, context.getString(R.string.kb_toast_language, label), Toast.LENGTH_SHORT).show()
+        showStatus(context.getString(R.string.kb_toast_language, label), 2000L)
         CoroutineScope(Dispatchers.Main).launch {
             try {
                 context.dataStore.edit { settings ->
@@ -1366,6 +1456,7 @@ class WhisperKeyboard {
             val record = TranscriptionHistory.loadLast(context)
             rawResultText = record?.rawText
             polishedResultText = record?.polishedText
+            updateLastTooltip()
         } catch (_: Exception) {
             // Best-effort only; a missing record just shows the default.
         }
@@ -1378,16 +1469,13 @@ class WhisperKeyboard {
             val clipboard =
                 context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             clipboard.setPrimaryClip(ClipData.newPlainText("transcription", text))
-            Toast.makeText(context, R.string.last_result_copied, Toast.LENGTH_SHORT).show()
+            showStatus(context.getString(R.string.last_result_copied), 2000L)
         } catch (_: Exception) {
             // Copy failure must not crash the keyboard.
         }
     }
 
-    private fun toast(@StringRes message: Int) {
-        val context = keyboardView?.context ?: return
-        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-    }
+
 
     private fun color(context: Context, @ColorRes id: Int): Int = ContextCompat.getColor(context, id)
 
