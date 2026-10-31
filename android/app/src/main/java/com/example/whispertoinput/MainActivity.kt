@@ -402,6 +402,12 @@ class MainActivity : AppCompatActivity() {
                     for (settingItem in settingItems) {
                         settingItem.apply()
                     }
+                    // The keyboard's language key keeps a custom code (e.g. ja)
+                    // in its cycle only while the setting holds one.
+                    LanguageSettings.syncCustomFromSetting(
+                        this@MainActivity,
+                        findViewById<EditText>(R.id.field_language_code).text.toString()
+                    )
                     btnApply.isEnabled = false
                 }
                 Toast.makeText(this@MainActivity, R.string.successfully_set, Toast.LENGTH_SHORT).show()

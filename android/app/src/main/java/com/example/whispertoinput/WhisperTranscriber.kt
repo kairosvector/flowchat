@@ -329,8 +329,11 @@ class WhisperTranscriber {
                 // a fixed language has to reach OpenAI-compatible backends
                 // (Groq ignores the URL query). "auto" stays unset so the
                 // default request is unchanged.
-                if (languageCode.isNotBlank() && languageCode != DEFAULT_STT_LANGUAGE) {
-                    addFormDataPart("language", languageCode)
+                // Only a plain 2-3 letter code is sent ("zh-TW" -> "zh");
+                // "multi", blanks and anything odd stay unset (= auto).
+                val language = LanguageSettings.normalize(languageCode)
+                if (language != LanguageSettings.AUTO) {
+                    addFormDataPart("language", language)
                 }
             }
             if (speechToTextBackend == context.getString(R.string.settings_option_nvidia_nim)) {
