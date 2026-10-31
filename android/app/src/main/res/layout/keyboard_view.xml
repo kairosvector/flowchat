@@ -57,13 +57,13 @@
         <LinearLayout
             android:id="@+id/preview_chip"
             android:layout_width="0dp"
-            android:layout_height="36dp"
+            android:layout_height="48dp"
             android:layout_weight="1"
             android:background="@drawable/kb_bg_chip"
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:paddingStart="12dp"
-            android:paddingEnd="6dp">
+            android:paddingEnd="0dp">
 
             <TextView
                 android:id="@+id/preview_tag"
@@ -102,21 +102,24 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
-                android:layout_marginEnd="6dp"
+                android:layout_marginEnd="14dp"
+                android:fontFeatureSettings="tnum"
                 android:text="@string/kb_timer_zero"
                 android:textColor="@color/kb_recording"
-                android:textSize="14sp"
+                android:textSize="13sp"
                 android:textStyle="bold"
                 android:visibility="gone" />
 
             <ImageButton
                 android:id="@+id/btn_preview_insert"
-                android:layout_width="28dp"
-                android:layout_height="28dp"
-                android:layout_marginStart="6dp"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
                 android:background="@drawable/kb_bg_insert_small"
                 android:contentDescription="@string/kb_action_insert"
-                android:padding="6dp"
+                android:paddingStart="20dp"
+                android:paddingTop="16dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="16dp"
                 android:scaleType="fitCenter"
                 android:src="@drawable/kb_ic_insert"
                 android:tint="@color/kb_on_primary_container" />
@@ -125,7 +128,7 @@
         <LinearLayout
             android:id="@+id/btn_polish_toggle"
             android:layout_width="wrap_content"
-            android:layout_height="36dp"
+            android:layout_height="48dp"
             android:layout_marginStart="6dp"
             android:background="@drawable/kb_bg_pill_on"
             android:clickable="true"
@@ -188,7 +191,7 @@
             android:id="@+id/group_main"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:clipChildren="false"
+            android:clipChildren="true"
             android:clipToPadding="false"
             android:orientation="vertical">
 
@@ -256,8 +259,8 @@
 
                     <com.example.whispertoinput.keyboard.PulseRingView
                         android:id="@+id/pulse_rings"
-                        android:layout_width="140dp"
-                        android:layout_height="140dp"
+                        android:layout_width="160dp"
+                        android:layout_height="160dp"
                         android:layout_gravity="center"
                         android:visibility="gone" />
 
@@ -404,9 +407,9 @@
                     android:contentDescription="@string/kb_retry"
                     android:focusable="true"
                     android:paddingStart="10dp"
-                    android:paddingTop="3dp"
+                    android:paddingTop="1dp"
                     android:paddingEnd="10dp"
-                    android:paddingBottom="3dp"
+                    android:paddingBottom="1dp"
                     android:text="@string/kb_retry"
                     android:textColor="@color/kb_on_surface"
                     android:textSize="12sp"
@@ -480,17 +483,31 @@
                     android:layout_marginTop="6dp"
                     android:orientation="horizontal">
 
-                    <TextView
+                    <LinearLayout
                         android:layout_width="62dp"
                         android:layout_height="wrap_content"
                         android:background="@drawable/kb_bg_label_ai"
                         android:gravity="center"
+                        android:orientation="horizontal"
                         android:paddingTop="3dp"
-                        android:paddingBottom="3dp"
-                        android:text="@string/kb_label_ai"
-                        android:textColor="@color/kb_on_tertiary_container"
-                        android:textSize="11sp"
-                        android:textStyle="bold" />
+                        android:paddingBottom="3dp">
+
+                        <ImageView
+                            android:layout_width="12dp"
+                            android:layout_height="12dp"
+                            android:importantForAccessibility="no"
+                            android:src="@drawable/kb_ic_sparkle"
+                            android:tint="@color/kb_on_tertiary_container" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="2dp"
+                            android:text="@string/kb_label_ai"
+                            android:textColor="@color/kb_on_tertiary_container"
+                            android:textSize="11sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
 
                     <TextView
                         android:id="@+id/text_ai"
@@ -515,6 +532,7 @@
 
                 <LinearLayout
                     android:id="@+id/action_insert"
+                    android:contentDescription="@string/kb_action_insert"
                     android:layout_width="wrap_content"
                     android:layout_height="48dp"
                     android:background="@drawable/kb_bg_action_primary_touch"
@@ -546,6 +564,7 @@
 
                 <LinearLayout
                     android:id="@+id/action_repolish"
+                    android:contentDescription="@string/kb_action_repolish"
                     android:layout_width="wrap_content"
                     android:layout_height="48dp"
                     android:layout_marginStart="6dp"
@@ -567,6 +586,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
+                        android:id="@+id/action_repolish_label"
                         android:layout_marginStart="4dp"
                         android:text="@string/kb_action_repolish"
                         android:textColor="@color/kb_on_surface"
@@ -576,6 +596,7 @@
 
                 <LinearLayout
                     android:id="@+id/action_copy"
+                    android:contentDescription="@string/kb_action_copy"
                     android:layout_width="wrap_content"
                     android:layout_height="48dp"
                     android:layout_marginStart="6dp"
@@ -597,6 +618,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
+                        android:id="@+id/action_copy_label"
                         android:layout_marginStart="4dp"
                         android:text="@string/kb_action_copy"
                         android:textColor="@color/kb_on_surface"
@@ -606,6 +628,7 @@
 
                 <LinearLayout
                     android:id="@+id/action_undo"
+                    android:contentDescription="@string/kb_action_undo"
                     android:layout_width="wrap_content"
                     android:layout_height="48dp"
                     android:layout_marginStart="6dp"
@@ -706,6 +729,7 @@
                 android:tint="@color/kb_on_surface" />
 
             <TextView
+                android:id="@+id/hold_hint"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="top|end"
@@ -723,7 +747,10 @@
             android:layout_marginStart="6dp"
             android:background="@drawable/kb_bg_key_container"
             android:contentDescription="@string/start_transcribing"
-            android:padding="18dp"
+            android:paddingStart="21dp"
+            android:paddingTop="15dp"
+            android:paddingEnd="21dp"
+            android:paddingBottom="15dp"
             android:scaleType="fitCenter"
             android:src="@drawable/kb_ic_enter"
             android:tint="@color/kb_on_primary_container" />

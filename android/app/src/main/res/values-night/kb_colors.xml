@@ -4,6 +4,7 @@
     <color name="kb_background">#12141A</color>
     <color name="kb_key">#22252D</color>
     <color name="kb_key_alt">#2E3342</color>
+    <color name="kb_card">#1C1F27</color>
     <color name="kb_on_surface">#E3E4EC</color>
     <color name="kb_on_surface_variant">#C4C6D0</color>
     <color name="kb_outline">#44474F</color>

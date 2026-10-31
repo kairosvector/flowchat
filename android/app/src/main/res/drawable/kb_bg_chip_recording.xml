@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <solid android:color="@color/kb_recording_container" />
-    <corners android:radius="18dp" />
-</shape>
+<!-- 36dp visual inside the 48dp chip row. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:top="6dp" android:bottom="6dp">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/kb_recording_container" />
+            <corners android:radius="18dp" />
+        </shape>
+    </item>
+</layer-list>
