@@ -2,6 +2,11 @@
 
 原專案：j3soon/whisper-to-input（GPL-3.0，作者 Yan-Bin Diau、Johnson Sun 等，見原 LICENSE 與 README）。
 
+## 2026-10-31 fork6 第九輪：錯誤訊息改成短句（版本仍是 0.4-fork6，versionCode 18）
+- 鍵盤狀態列的轉寫錯誤不再顯示伺服器回傳的原始 JSON，改成「轉寫失敗：API Key 無效／次數超量，請稍後再試／伺服器錯誤／連線逾時／沒有網路／發生錯誤（代碼 N）／發生錯誤」；潤飾失敗同樣改成「潤飾失敗：…」，結果卡與「重新潤飾」兩處都適用。
+- 新增 `ErrorMessageMapper`（純 Kotlin，有單元測試）；回應內容讀到就丟，logcat 只寫階段與 HTTP 碼或例外類別名稱，不再寫回應內容。
+- 沒有改版面、設定頁、測試連線文案與簽章；移除不再使用的 `kb_toast_repolish_failed`。
+
 ## 2026-10-31 fork6 第八輪：ROUND 7 補驗證與小修（版本仍是 0.4-fork6，versionCode 17）
 - 頂列四顆鍵（上次、AI 潤飾、設定、退格）的背景沒有畫出來：`ripple` 底下直接放 `shape` 不會繪製，改成包在 `item` 裡（`kb_bg_top_key`、`kb_bg_top_ai`），AI 開啟時的 tertiaryContainer 底與關閉時的外框才會出現。
 - `kb_listening` 尾端多一個空白，狀態列「● 聆聽中 0:03」不再有雙空白。
