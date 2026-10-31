@@ -79,7 +79,7 @@ class WhisperTranscriber {
         filename: String,
         mediaType: String,
         attachToEnd: String,
-        callback: (String?) -> Unit,
+        callback: (text: String?, raw: String?, polished: String?) -> Unit,
         exceptionCallback: (String) -> Unit,
         stageCallback: ((PolishStage, String?) -> Unit)? = null
     ) {
@@ -185,7 +185,7 @@ class WhisperTranscriber {
             // Within the job, make a suspend call at the I/O thread
             // It suspends before result is obtained.
             // Returns (transcribed string, exception message)
-            val (transcribedText, exceptionMessage) = withContext(Dispatchers.IO) {
+            val (outcome, exceptionMessage) = withContext(Dispatchers.IO) {
                 try {
                     // Perform transcription (and polish, if applicable) here.
                     val outcome = makeWhisperRequest()
@@ -200,17 +200,19 @@ class WhisperTranscriber {
                     // Clean up unused audio file after transcription
                     // Ref: https://developer.android.com/reference/android/media/MediaRecorder#setOutputFile(java.io.File)
                     File(filename).delete()
-                    return@withContext Pair(outcome.textWithAttach, null)
+                    return@withContext Pair<Outcome?, String?>(outcome, null)
                 } catch (e: CancellationException) {
                     // Task was canceled
-                    return@withContext Pair(null, null)
+                    return@withContext Pair<Outcome?, String?>(null, null)
                 } catch (e: Exception) {
-                    return@withContext Pair(null, e.message)
+                    return@withContext Pair<Outcome?, String?>(null, e.message)
                 }
             }
 
-            // This callback is within the main thread.
-            callback.invoke(transcribedText)
+            // This callback is within the main thread. Raw and polished
+            // come straight from the outcome (fork6), so the result card
+            // never depends on the history file having been written.
+            callback.invoke(outcome?.textWithAttach, outcome?.rawCore, outcome?.polishedCore)
 
             // If exception message is not null
             if (!exceptionMessage.isNullOrEmpty()) {
@@ -323,6 +325,13 @@ class WhisperTranscriber {
             if (speechToTextBackend == context.getString(R.string.settings_option_openai_api)) {
                 addFormDataPart("model", model)
                 addFormDataPart("response_format", "text")
+                // Fork6: the keyboard's language key edits this setting, so
+                // a fixed language has to reach OpenAI-compatible backends
+                // (Groq ignores the URL query). "auto" stays unset so the
+                // default request is unchanged.
+                if (languageCode.isNotBlank() && languageCode != DEFAULT_STT_LANGUAGE) {
+                    addFormDataPart("language", languageCode)
+                }
             }
             if (speechToTextBackend == context.getString(R.string.settings_option_nvidia_nim)) {
                 addFormDataPart("language", languageCode)

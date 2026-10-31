@@ -61,13 +61,13 @@ class WhisperInputService : InputMethodService() {
     private var useOggFormat: Boolean = false
     private var isFirstTime: Boolean = true
 
-    private fun transcriptionCallback(text: String?) {
+    private fun transcriptionCallback(text: String?, raw: String?, polished: String?) {
         if (!text.isNullOrEmpty()) {
             currentInputConnection?.commitText(text, 1)
-            // Fork6: the panel switches to the result card (raw vs polished,
-            // read back from the record the transcriber already saved) and
-            // remembers the inserted text so "undo" can delete it again.
-            whisperKeyboard.showResult(text)
+            // Fork6: the panel switches to the result card (raw vs polished
+            // exactly as the transcriber produced them) and remembers the
+            // inserted text so "undo" can delete it again.
+            whisperKeyboard.showResult(raw ?: text.trim(), polished, text)
             // Check if auto-switch-back is enabled and switch if so
             CoroutineScope(Dispatchers.Main).launch {
                 val autoSwitchBack = dataStore.data.map { preferences: Preferences ->
@@ -190,7 +190,7 @@ class WhisperInputService : InputMethodService() {
             { onShowInputMethodPicker() },
             { onDeleteWord() },
             { text -> onInsertText(text) },
-            { length -> onUndoInsert(length) },
+            { inserted -> onUndoInsert(inserted) },
             { raw, done -> whisperTranscriber.polishAsync(this, raw, done) },
         )
     }
@@ -254,7 +254,7 @@ class WhisperInputService : InputMethodService() {
             recordedAudioFilename,
             audioMediaType,
             attachToEnd,
-            { transcriptionCallback(it) },
+            { text, raw, polished -> transcriptionCallback(text, raw, polished) },
             { transcriptionExceptionCallback(it) },
             { stage, text -> onPolishStage(stage, text) })
     }
@@ -307,8 +307,30 @@ class WhisperInputService : InputMethodService() {
         currentInputConnection?.commitText(text, 1)
     }
 
-    private fun onUndoInsert(length: Int) {
-        if (length > 0) currentInputConnection?.deleteSurroundingText(length, 0)
+    // Only deletes when the text right before the cursor is still exactly
+    // what was inserted; otherwise the user has typed or moved on and a
+    // blind delete would remove the wrong characters. Returns whether the
+    // text was removed.
+    private fun onUndoInsert(inserted: String): Boolean {
+        if (inserted.isEmpty()) return false
+        val inputConnection = currentInputConnection ?: return false
+        if (!TextUtils.isEmpty(inputConnection.getSelectedText(0))) return false
+        val before = inputConnection.getTextBeforeCursor(inserted.length, 0)?.toString()
+        if (before != inserted) return false
+        return inputConnection.deleteSurroundingText(inserted.length, 0)
+    }
+
+    // The cursor was moved (or the text changed) by something other than
+    // the result card: what the card inserted is no longer "just there".
+    override fun onUpdateSelection(
+        oldSelStart: Int, oldSelEnd: Int,
+        newSelStart: Int, newSelEnd: Int,
+        candidatesStart: Int, candidatesEnd: Int
+    ) {
+        super.onUpdateSelection(
+            oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd
+        )
+        whisperKeyboard.onSelectionChanged(newSelStart, newSelEnd)
     }
 
     private fun onSwitchIme() {

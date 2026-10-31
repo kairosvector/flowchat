@@ -167,6 +167,7 @@
     <string name="kb_action_copy">複製</string>
     <string name="kb_action_undo">復原</string>
     <string name="kb_toast_undone">已復原</string>
+    <string name="kb_toast_undo_failed">游標處的文字已改變，未復原</string>
     <string name="kb_toast_repolish_failed">潤飾失敗，保留原文</string>
     <string name="kb_switch_ime_picker_hint">長按選擇輸入法</string>
 

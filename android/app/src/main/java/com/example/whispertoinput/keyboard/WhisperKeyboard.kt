@@ -69,6 +69,11 @@ private const val LANGUAGE_AUTO = "auto"
 private const val LANGUAGE_ZH = "zh"
 private const val LANGUAGE_EN = "en"
 
+// A language code typed in the settings page that is not auto / zh / en is
+// remembered here, so the language key keeps it in its cycle.
+private const val PREFS_NAME = "whisper_input_prefs"
+private const val PREF_CUSTOM_LANGUAGE = "custom_language_code"
+
 /**
  * Fork6 redesigned keyboard panel. The whole panel is driven by one
  * [UiState]; [render] is the only place that decides what is visible,
@@ -100,7 +105,9 @@ class WhisperKeyboard {
     private var shouldShowRetry: () -> Boolean = { false }
     // Fork6: result-card actions that need the input connection / network.
     private var onInsertText: (String) -> Unit = { }
-    private var onUndoInsert: (Int) -> Unit = { }
+    // Returns false when the text before the cursor no longer matches
+    // what was inserted, in which case nothing was deleted.
+    private var onUndoInsert: (String) -> Boolean = { false }
     private var onRepolish: (raw: String, done: (String?) -> Unit) -> Unit = { _, done -> done(null) }
 
     // ---- state ----
@@ -121,9 +128,13 @@ class WhisperKeyboard {
     // insertedText corresponds to, so "insert" is only offered for a text
     // that is not already in the editor.
     private var insertedBase: String? = null
+    // Where the cursor sat right after the insert (-1 = not seen yet); a
+    // cursor anywhere else means the card no longer owns that text.
+    private var insertedCursor: Int = -1
 
     private var polishEnabled: Boolean = true
     private var languageCode: String = LANGUAGE_AUTO
+    private var customLanguageCode: String? = null
     private var offerImeSwitch: Boolean = true
 
     // Mic gesture bookkeeping
@@ -216,7 +227,7 @@ class WhisperKeyboard {
         onShowInputMethodPicker: () -> Unit = { },
         onButtonBackspaceWord: () -> Unit = { },
         onInsertText: (String) -> Unit = { },
-        onUndoInsert: (Int) -> Unit = { },
+        onUndoInsert: (String) -> Boolean = { false },
         onRepolish: (raw: String, done: (String?) -> Unit) -> Unit = { _, done -> done(null) },
     ): View {
         val root = layoutInflater.inflate(R.layout.keyboard_view, null)
@@ -290,14 +301,17 @@ class WhisperKeyboard {
         buttonSpaceBar!!.setOnClickListener { onButtonSpaceBarClick() }
         buttonEnter!!.setOnClickListener { onButtonEnterClick() }
         buttonBackspace!!.setBackspaceCallback(
-            { this.onButtonBackspace() },
-            { this.onButtonBackspaceWord() }
+            { clearInserted(); this.onButtonBackspace() },
+            { clearInserted(); this.onButtonBackspaceWord() }
         )
         buttonSettings!!.setOnClickListener { this.onOpenSettings() }
         buttonPolishToggle!!.setOnClickListener { onButtonPolishToggleClick() }
         buttonLanguage!!.setOnClickListener { onLanguageClick() }
         buttonHistory!!.setOnClickListener { onHistoryClick() }
-        buttonPreviewInsert!!.setOnClickListener { lastResultText?.let { this.onInsertText(it) } }
+        buttonPreviewInsert!!.setOnClickListener {
+            clearInserted()
+            lastResultText?.let { this.onInsertText(it) }
+        }
         // Tapping the preview text still copies the last result (as before).
         previewText!!.setOnClickListener { if (state == UiState.Idle) copyText(lastResultText) }
         buttonRetry!!.setOnClickListener { onButtonRetryClick() }
@@ -322,6 +336,7 @@ class WhisperKeyboard {
         stagedRaw = null
         insertedText = null
         insertedBase = null
+        insertedCursor = -1
         refreshLastRecord()
         setState(UiState.Idle)
         // Re-read the toggle and the language on every reset (the service
@@ -333,19 +348,17 @@ class WhisperKeyboard {
 
     /**
      * The transcription finished and [insertedText] was committed to the
-     * editor. Shows the result card for the record the transcriber just
-     * saved; [insertedText] is what "undo" will delete again.
+     * editor. [raw] and [polished] are handed over directly by the
+     * transcriber (not read back from the history file, which may have
+     * failed to save); [insertedText] is what "undo" will delete again.
      */
-    fun showResult(insertedText: String?) {
-        refreshLastRecord()
+    fun showResult(raw: String, polished: String?, insertedText: String?) {
+        rawResultText = raw
+        polishedResultText = polished?.takeIf { it.isNotEmpty() }
         val inserted = insertedText?.takeIf { it.isNotEmpty() }
-        if (rawResultText.isNullOrEmpty() && inserted != null) {
-            // History could not be read back; still show what was inserted.
-            rawResultText = inserted.trim()
-            polishedResultText = null
-        }
         this.insertedText = inserted
         this.insertedBase = if (inserted != null) lastResultText else null
+        this.insertedCursor = -1
         repolishing = false
         stagedRaw = null
         setState(UiState.Result)
@@ -421,6 +434,9 @@ class WhisperKeyboard {
     }
 
     private fun startRecording() {
+        insertedText = null
+        insertedBase = null
+        insertedCursor = -1
         setState(UiState.Recording)
         onStartRecording()
     }
@@ -747,6 +763,12 @@ class WhisperKeyboard {
                 MotionEvent.ACTION_CANCEL -> {
                     v.isPressed = false
                     cancelArmed = false
+                    // The system took the touch away (e.g. a gesture or a
+                    // dialog) before release. If this touch started the
+                    // recording, there is no release to send it, so it is
+                    // cancelled instead of left recording on its own.
+                    if (micStartedRecording && state == UiState.Recording) cancelRecording()
+                    micStartedRecording = false
                 }
             }
             true
@@ -800,6 +822,7 @@ class WhisperKeyboard {
             beginProcessing()
             onStartTranscribing(" ")
         } else {
+            clearInserted()
             onSpaceBar()
         }
     }
@@ -811,6 +834,7 @@ class WhisperKeyboard {
             beginProcessing()
             onStartTranscribing("\r\n")
         } else {
+            clearInserted()
             onEnter()
         }
     }
@@ -843,18 +867,47 @@ class WhisperKeyboard {
         onInsertText(text)
         insertedText = text
         insertedBase = text
+        insertedCursor = -1
         render()
     }
 
     private fun onActionUndo() {
         val inserted = insertedText ?: return
-        // Remember-the-length undo: delete exactly what was inserted
-        // right before the cursor.
-        onUndoInsert(inserted.length)
+        // The service only deletes when the text before the cursor is
+        // still exactly what was inserted; either way the card gives up
+        // the text afterwards, so undo is disabled.
+        val removed = onUndoInsert(inserted)
         insertedText = null
         insertedBase = null
-        toast(R.string.kb_toast_undone)
+        insertedCursor = -1
+        toast(if (removed) R.string.kb_toast_undone else R.string.kb_toast_undo_failed)
         render()
+    }
+
+    /**
+     * The editor's selection changed (the service forwards
+     * onUpdateSelection). The first change after an insert is the insert
+     * itself and only records where the cursor is; any later change means
+     * the cursor was moved or the text edited, so undo is withdrawn.
+     */
+    fun onSelectionChanged(selStart: Int, selEnd: Int) {
+        if (insertedText == null) return
+        if (selStart != selEnd) {
+            clearInserted()
+        } else if (insertedCursor < 0) {
+            insertedCursor = selEnd
+        } else if (selEnd != insertedCursor) {
+            clearInserted()
+        }
+    }
+
+    /** Forget the inserted text: undo is disabled and insert is offered again. */
+    fun clearInserted() {
+        if (insertedText == null && insertedBase == null) return
+        insertedText = null
+        insertedBase = null
+        insertedCursor = -1
+        if (state == UiState.Result) render()
     }
 
     private fun onActionRepolish() {
@@ -950,19 +1003,35 @@ class WhisperKeyboard {
             } catch (_: Exception) {
                 languageCode = LANGUAGE_AUTO
             }
+            rememberCustomLanguage(context)
             labelLanguage?.text = languageLabel(context, languageCode)
         }
     }
 
+    // A code from the settings page (e.g. ja) is not one of the three
+    // built-in choices; keep it so cycling away from it does not lose it.
+    private fun rememberCustomLanguage(context: Context) {
+        try {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            if (languageCode != LANGUAGE_AUTO && languageCode != LANGUAGE_ZH && languageCode != LANGUAGE_EN) {
+                customLanguageCode = languageCode
+                prefs.edit().putString(PREF_CUSTOM_LANGUAGE, languageCode).apply()
+            } else if (customLanguageCode == null) {
+                customLanguageCode = prefs.getString(PREF_CUSTOM_LANGUAGE, null)?.takeIf { it.isNotBlank() }
+            }
+        } catch (_: Exception) {
+            // Best effort: without it the cycle is just auto / zh / en.
+        }
+    }
+
     // Language key: cycles the transcription language setting
-    // (auto -> zh -> en -> auto), the same LANGUAGE_CODE the settings page edits.
+    // (auto -> zh -> en -> the custom code from settings, if any -> auto),
+    // the same LANGUAGE_CODE the settings page edits.
     private fun onLanguageClick() {
         val context = keyboardView?.context ?: return
-        val next = when (languageCode) {
-            LANGUAGE_AUTO -> LANGUAGE_ZH
-            LANGUAGE_ZH -> LANGUAGE_EN
-            else -> LANGUAGE_AUTO
-        }
+        val cycle = listOfNotNull(LANGUAGE_AUTO, LANGUAGE_ZH, LANGUAGE_EN, customLanguageCode)
+        val index = cycle.indexOf(languageCode)
+        val next = if (index < 0) LANGUAGE_AUTO else cycle[(index + 1) % cycle.size]
         languageCode = next
         val label = languageLabel(context, next)
         labelLanguage?.text = label
