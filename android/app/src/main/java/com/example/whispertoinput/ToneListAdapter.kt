@@ -25,6 +25,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import androidx.core.view.ViewCompat
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
 
@@ -84,10 +85,46 @@ class ToneListAdapter(
         holder.itemView.setOnClickListener { onClick(tone) }
         holder.handle.contentDescription = context.getString(R.string.set_drag_cd, tone.name)
         // Only the handle starts a drag.
-        holder.handle.setOnTouchListener { v, event ->
+        holder.handle.setOnTouchListener { _, event ->
             if (event.actionMasked == MotionEvent.ACTION_DOWN) startDrag(holder)
             false
         }
+        // TalkBack accessibility actions for moving up/down
+        ViewCompat.setAccessibilityDelegate(holder.itemView, object : androidx.core.view.AccessibilityDelegateCompat() {
+            override fun onInitializeAccessibilityNodeInfo(host: View, info: androidx.core.view.accessibility.AccessibilityNodeInfoCompat) {
+                super.onInitializeAccessibilityNodeInfo(host, info)
+                val p = holder.adapterPosition
+                if (p > 0) {
+                    info.addAction(
+                        androidx.core.view.accessibility.AccessibilityNodeInfoCompat.AccessibilityActionCompat(
+                            R.id.action_move_up,
+                            context.getString(R.string.set_tone_move_up)
+                        )
+                    )
+                }
+                if (p in 0 until tones.size - 1) {
+                    info.addAction(
+                        androidx.core.view.accessibility.AccessibilityNodeInfoCompat.AccessibilityActionCompat(
+                            R.id.action_move_down,
+                            context.getString(R.string.set_tone_move_down)
+                        )
+                    )
+                }
+            }
+
+            override fun performAccessibilityAction(host: View, action: Int, args: android.os.Bundle?): Boolean {
+                val p = holder.adapterPosition
+                if (action == R.id.action_move_up && p > 0) {
+                    move(p, p - 1)
+                    return true
+                }
+                if (action == R.id.action_move_down && p in 0 until tones.size - 1) {
+                    move(p, p + 1)
+                    return true
+                }
+                return super.performAccessibilityAction(host, action, args)
+            }
+        })
     }
 
     /** Drag behaviour: up / down only, started from the handle. */

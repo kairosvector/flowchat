@@ -2003,6 +2003,7 @@ class WhisperKeyboard {
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, (44 * density).toInt()
             )
+            setPadding(0, 0, (4 * density).toInt(), 0)
             setBackgroundResource(if (selected) R.drawable.kb_bg_menu_row_selected else R.drawable.kb_bg_menu_row)
             isClickable = true
             isFocusable = true
@@ -2025,7 +2026,7 @@ class WhisperKeyboard {
             maxLines = 1
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { marginStart = (12 * density).toInt() }
+            ).apply { marginStart = (8 * density).toInt() }
         })
         row.addView(TextView(context).apply {
             text = desc
@@ -2038,7 +2039,7 @@ class WhisperKeyboard {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                 marginStart = (8 * density).toInt()
                 // The "off" row has no prompt key and keeps no room for one.
-                marginEnd = if (withPrompt) 0 else (12 * density).toInt()
+                marginEnd = if (withPrompt) (4 * density).toInt() else (12 * density).toInt()
             }
         })
         if (withPrompt) {
@@ -2270,8 +2271,14 @@ class WhisperKeyboard {
     // polished text (46dp) and of the original (44dp) fit exactly.
     private fun applyResultLineHeights(root: View, fontScale: Float) {
         val scale = root.resources.displayMetrics.density * minOf(fontScale, MAX_FONT_SCALE)
-        textAi?.let { TextViewCompat.setLineHeight(it, (RESULT_AI_LINE_SP * scale).toInt()) }
-        textRaw?.let { TextViewCompat.setLineHeight(it, (RESULT_RAW_LINE_SP * scale).toInt()) }
+        textAi?.let {
+            it.includeFontPadding = false
+            TextViewCompat.setLineHeight(it, (RESULT_AI_LINE_SP * scale).toInt())
+        }
+        textRaw?.let {
+            it.includeFontPadding = false
+            TextViewCompat.setLineHeight(it, (RESULT_RAW_LINE_SP * scale).toInt())
+        }
     }
 
     // The panel's 8dp bottom margin is measured above the system gesture /

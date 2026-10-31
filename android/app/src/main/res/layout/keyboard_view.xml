@@ -603,6 +603,7 @@
                         android:id="@+id/text_ai"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:includeFontPadding="false"
                         android:textColor="@color/kb_on_surface"
                         android:textSize="14sp"
                         android:textStyle="bold" />
@@ -615,6 +616,7 @@
                 android:layout_height="44dp"
                 android:layout_marginTop="4dp"
                 android:ellipsize="end"
+                android:includeFontPadding="false"
                 android:maxLines="2"
                 android:textColor="@color/kb_on_surface_variant"
                 android:textSize="13sp" />
