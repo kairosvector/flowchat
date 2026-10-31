@@ -212,8 +212,9 @@ class ErrorMessageMapperTest {
 
     @Test
     fun theHintStringsExistAndStayShort() {
+        // 429: the hint row says only this (the retry key sits right next to it, so no ↻ in the text)
         assertEquals("請稍後再試", strings.getValue("kb_hint_rate_limited"))
-        assertEquals("請稍後再按 ↻ 重試", strings.getValue("kb_hint_rate_limited_retry"))
+        assertFalse(strings.containsKey("kb_hint_rate_limited_retry"))
     }
 
     @Test

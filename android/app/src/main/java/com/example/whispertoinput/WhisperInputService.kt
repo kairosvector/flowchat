@@ -69,22 +69,31 @@ class WhisperInputService : InputMethodService() {
         text: String?, raw: String?, polished: String?, note: PolishNote, polishError: ErrorDisplay?
     ) {
         if (!text.isNullOrEmpty()) {
-            currentInputConnection?.commitText(text, 1)
-            // Fork6: the panel switches to the result card (raw vs polished
-            // exactly as the transcriber produced them) and remembers the
-            // inserted text so "undo" can delete it again.
-            whisperKeyboard.showResult(raw ?: text.trim(), polished, text, note, polishError)
-            // Check if auto-switch-back is enabled and switch if so
-            CoroutineScope(Dispatchers.Main).launch {
-                val autoSwitchBack = dataStore.data.map { preferences: Preferences ->
-                    preferences[AUTO_SWITCH_BACK] ?: false
-                }.first()
-                if (autoSwitchBack) {
-                    onSwitchIme()
-                }
+            if (note == PolishNote.OK || note == PolishNote.FAILED) {
+                // Polishing ran (it worked or it failed): the result card
+                // waits for "insert" (SPEC_r8 RESULT_PENDING), nothing is
+                // typed into the editor yet.
+                whisperKeyboard.showResult(raw ?: text.trim(), polished, text, note, polishError)
+            } else {
+                // AI off or a short sentence: no card, the text goes straight in.
+                currentInputConnection?.commitText(text, 1)
+                whisperKeyboard.showDirectInserted()
+                switchBackIfWanted()
             }
         } else {
             whisperKeyboard.reset()
+        }
+    }
+
+    // Check if auto-switch-back is enabled and switch if so
+    private fun switchBackIfWanted() {
+        CoroutineScope(Dispatchers.Main).launch {
+            val autoSwitchBack = dataStore.data.map { preferences: Preferences ->
+                preferences[AUTO_SWITCH_BACK] ?: false
+            }.first()
+            if (autoSwitchBack) {
+                onSwitchIme()
+            }
         }
     }
 
@@ -195,8 +204,8 @@ class WhisperInputService : InputMethodService() {
             { onShowInputMethodPicker() },
             { onDeleteWord() },
             { text -> onInsertText(text) },
+            { text, submit -> onInsertResult(text, submit) },
             { inserted -> onUndoInsert(inserted) },
-            { old, replacement -> onReplaceInserted(old, replacement) },
             { raw, done -> whisperTranscriber.polishAsync(this, raw, done) },
         )
         applyNavigationBarStyle()
@@ -338,9 +347,27 @@ class WhisperInputService : InputMethodService() {
         inputConnection.deleteSurroundingText(maxOf(length, 1), 0)
     }
 
-    // Fork6: result card "insert" / "undo".
+    // History rows: plain text into the editor.
     private fun onInsertText(text: String) {
         currentInputConnection?.commitText(text, 1)
+    }
+
+    // The result card's "insert" (and Enter = insert + send, SPEC_r8 §9.2):
+    // type the text; with [submit] run the field's own action (send, go,
+    // search, done, next) or, when it has none, press Enter (a newline).
+    private fun onInsertResult(text: String, submit: Boolean) {
+        val inputConnection = currentInputConnection ?: return
+        inputConnection.commitText(text, 1)
+        if (submit) {
+            val action = EnterAction.editorAction(currentInputEditorInfo?.imeOptions ?: 0)
+            if (action != null) {
+                inputConnection.performEditorAction(action)
+            } else {
+                inputConnection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
+                inputConnection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
+            }
+        }
+        switchBackIfWanted()
     }
 
     // Only deletes when the text right before the cursor is still exactly
@@ -356,28 +383,8 @@ class WhisperInputService : InputMethodService() {
         return inputConnection.deleteSurroundingText(inserted.length, 0)
     }
 
-    // Swaps `old` (what the result card inserted) for `replacement`, as one
-    // edit so the host never sees the half-way text. Same safety check as
-    // undo: only when the text right before the cursor is still exactly
-    // `old` and nothing is selected; otherwise nothing is deleted. Returns
-    // whether the editor was changed.
-    private fun onReplaceInserted(old: String, replacement: String): Boolean {
-        if (old.isEmpty()) return false
-        val inputConnection = currentInputConnection ?: return false
-        if (!TextUtils.isEmpty(inputConnection.getSelectedText(0))) return false
-        val before = inputConnection.getTextBeforeCursor(old.length, 0)?.toString()
-        if (before != old) return false
-        inputConnection.beginBatchEdit()
-        try {
-            if (!inputConnection.deleteSurroundingText(old.length, 0)) return false
-            return inputConnection.commitText(replacement, 1)
-        } finally {
-            inputConnection.endBatchEdit()
-        }
-    }
-
-    // The cursor was moved (or the text changed) by something other than
-    // the result card: what the card inserted is no longer "just there".
+    // The cursor moved or the text changed (the card no longer follows the
+    // cursor since r8: undo checks the text before the cursor itself).
     override fun onUpdateSelection(
         oldSelStart: Int, oldSelEnd: Int,
         newSelStart: Int, newSelEnd: Int,

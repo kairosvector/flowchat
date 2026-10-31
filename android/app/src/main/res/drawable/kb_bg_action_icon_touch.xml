@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 36x34 visual inside a 48x48 touch box (6dp inset left / right, 7dp top / bottom). -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/kb_bg_action_outline"
+    android:insetLeft="6dp"
+    android:insetTop="7dp"
+    android:insetRight="6dp"
+    android:insetBottom="7dp" />

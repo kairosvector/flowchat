@@ -19,11 +19,13 @@
     along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 -->
-<!-- Fork6 keyboard redesign (see CHANGES.md). Fixed 280dp panel:
-     top row (48) / middle area (the rest) / bottom action row (52).
-     Which parts of the middle area and which top-row / bottom-row
-     variants are shown is decided in one place, WhisperKeyboard.render(),
-     from a single UiState (Idle / Recording / Processing / Result). -->
+
+<!-- Fork6 round 11 (SPEC_r8, layout D): fixed 280dp panel:
+     top row (48): tabs | status slot | tone key | backspace,
+     middle area (160): voice group / history list / result card,
+     bottom action row (52).
+     What is visible is decided in one place, WhisperKeyboard.render(),
+     from the UiState and the selected tab. -->
 <!-- The input-method framework ignores the root view's own layout_height
      (it re-adds the view as wrap_content), so the fixed 280dp lives on the
      inner LinearLayout, whose params survive inflation. -->
@@ -47,7 +49,7 @@
     android:paddingEnd="8dp"
     android:paddingBottom="8dp">
 
-    <!-- Top row, 48dp: last | AI polish toggle | status text | settings | backspace -->
+    <!-- Top row, 48dp: voice | emoji (R3, invisible) | history | status | tone | backspace -->
     <LinearLayout
         android:id="@+id/top_row"
         android:layout_width="match_parent"
@@ -56,40 +58,81 @@
         android:orientation="horizontal">
 
         <ImageButton
-            android:id="@+id/btn_last"
+            android:id="@+id/tab_voice"
             style="@style/KbTopKey"
-            android:contentDescription="@string/kb_insert_last"
-            android:src="@drawable/kb_ic_paste" />
+            android:background="@drawable/kb_bg_tab"
+            android:contentDescription="@string/kb_tab_voice"
+            android:src="@drawable/kb_ic_mic"
+            app:tint="@color/kb_color_tab" />
 
         <ImageButton
-            android:id="@+id/btn_polish_toggle"
+            android:id="@+id/tab_emoji"
             style="@style/KbTopKey"
-            android:background="@drawable/kb_bg_top_ai"
-            android:contentDescription="@string/kb_polish"
-            android:src="@drawable/kb_ic_sparkle_state"
-            app:tint="@color/kb_color_top_ai" />
+            android:background="@drawable/kb_bg_tab"
+            android:contentDescription="@string/kb_tab_emoji"
+            android:src="@drawable/kb_ic_emoji"
+            android:visibility="invisible"
+            app:tint="@color/kb_color_tab" />
 
-        <TextView
-            android:id="@+id/status_text"
+        <ImageButton
+            android:id="@+id/tab_clip"
+            style="@style/KbTopKey"
+            android:background="@drawable/kb_bg_tab"
+            android:contentDescription="@string/kb_tab_clip"
+            android:src="@drawable/kb_ic_paste"
+            app:tint="@color/kb_color_tab" />
+
+        <FrameLayout
+            android:id="@+id/status_slot"
             android:layout_width="0dp"
             android:layout_height="48dp"
-            android:layout_weight="1"
-            android:accessibilityLiveRegion="polite"
-            android:drawablePadding="6dp"
-            android:ellipsize="end"
-            android:gravity="center"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
-            android:singleLine="true"
-            android:textColor="@color/kb_on_surface_variant"
-            android:textSize="13sp" />
+            android:layout_weight="1">
 
-        <ImageButton
-            android:id="@+id/btn_settings"
-            style="@style/KbTopKey"
-            android:contentDescription="@string/kb_settings"
-            android:src="@drawable/kb_ic_settings"
-            app:tint="@color/kb_on_surface_variant" />
+            <TextView
+                android:id="@+id/status_text"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:accessibilityLiveRegion="polite"
+                android:drawablePadding="6dp"
+                android:ellipsize="end"
+                android:gravity="center"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:singleLine="true"
+                android:textColor="@color/kb_on_surface_variant"
+                android:textSize="13sp" />
+        </FrameLayout>
+
+        <LinearLayout
+            android:id="@+id/btn_tone"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="@drawable/kb_bg_top_ai"
+            android:clickable="true"
+            android:contentDescription="@string/kb_polish"
+            android:focusable="true"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <ImageView
+                android:id="@+id/tone_icon"
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:importantForAccessibility="no"
+                android:src="@drawable/kb_ic_sparkle_state"
+                app:tint="@color/kb_color_top_ai" />
+
+            <TextView
+                android:id="@+id/tone_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:importantForAccessibility="no"
+                android:singleLine="true"
+                android:text="@string/kb_tone_pro_short"
+                android:textColor="@color/kb_color_top_ai"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+        </LinearLayout>
 
         <com.example.whispertoinput.keyboard.BackspaceButton
             android:id="@+id/btn_backspace"
@@ -99,7 +142,7 @@
             app:tint="@color/kb_on_surface" />
     </LinearLayout>
 
-    <!-- Middle area: either the main (mic) group or the result card. -->
+    <!-- Middle area (160dp): the voice group, the history list or the result card. -->
     <FrameLayout
         android:id="@+id/middle_area"
         android:layout_width="match_parent"
@@ -216,32 +259,32 @@
                     android:clipChildren="false">
 
                     <FrameLayout
-                        android:id="@+id/key_history_col"
+                        android:id="@+id/key_settings_col"
                         android:layout_width="match_parent"
                         android:layout_height="match_parent">
 
                         <ImageButton
-                            android:id="@+id/btn_history"
+                            android:id="@+id/btn_settings"
                             android:layout_width="48dp"
                             android:layout_height="48dp"
                             android:layout_gravity="end|center_vertical"
                             android:layout_marginEnd="12dp"
                             android:background="@drawable/kb_bg_secondary_key"
-                            android:contentDescription="@string/kb_history"
+                            android:contentDescription="@string/kb_settings"
                             android:padding="13dp"
                             android:scaleType="fitCenter"
-                            android:src="@drawable/kb_ic_history"
+                            android:src="@drawable/kb_ic_settings"
                             android:tint="@color/kb_on_surface" />
 
                         <TextView
-                            android:id="@+id/label_history"
+                            android:id="@+id/label_settings"
                             android:layout_width="48dp"
                             android:layout_height="wrap_content"
                             android:layout_gravity="top|end"
                             android:layout_marginEnd="12dp"
                             android:layout_marginTop="96dp"
                             android:gravity="center_horizontal"
-                            android:text="@string/kb_history"
+                            android:text="@string/kb_settings"
                             android:textColor="@color/kb_on_surface_variant"
                             android:textSize="11sp" />
                     </FrameLayout>
@@ -344,30 +387,85 @@
             </LinearLayout>
         </LinearLayout>
 
-        <!-- Result card: raw (grey, struck through when a polished
-             version exists) above AI polish (bold), plus four actions. -->
+        <!-- History tab (card area 396x156): title row 32 + scrolling list. -->
+        <LinearLayout
+            android:id="@+id/group_clip"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_marginTop="4dp"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="32dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/seg_history"
+                    android:layout_width="wrap_content"
+                    android:layout_height="26dp"
+                    android:background="@drawable/kb_bg_step_chip_active"
+                    android:gravity="center"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
+                    android:text="@string/kb_seg_history"
+                    android:textColor="@color/kb_on_primary_container"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <ScrollView
+                android:id="@+id/clip_scroll"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:overScrollMode="ifContentScrolls"
+                android:scrollbars="none">
+
+                <FrameLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
+
+                    <LinearLayout
+                        android:id="@+id/clip_list"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical" />
+
+                    <TextView
+                        android:id="@+id/clip_empty"
+                        android:layout_width="match_parent"
+                        android:layout_height="96dp"
+                        android:gravity="center"
+                        android:text="@string/kb_history_empty"
+                        android:textColor="@color/kb_on_surface_variant"
+                        android:textSize="14sp"
+                        android:visibility="gone" />
+                </FrameLayout>
+            </ScrollView>
+        </LinearLayout>
+
+        <!-- Result card (396x156): polished text (2 lines, scrolls) above the
+             original (2 lines), then the actions. Not inserted yet = pending. -->
         <LinearLayout
             android:id="@+id/group_result"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:layout_marginTop="2dp"
+            android:layout_marginTop="4dp"
             android:background="@drawable/kb_bg_card"
             android:orientation="vertical"
-            android:paddingStart="16dp"
-            android:paddingTop="10dp"
-            android:paddingEnd="16dp"
-            android:paddingBottom="2dp"
+            android:paddingStart="12dp"
+            android:paddingTop="8dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="1dp"
             android:visibility="gone">
 
-            <!-- Only this text area scrolls; the actions below stay put.
-                 Order (Kevy, round 4): AI polish on top (what gets
-                 inserted), then the original, clamped to 2 lines until
-                 tapped. With polishing off / failed only one text shows. -->
             <ScrollView
                 android:id="@+id/result_scroll"
                 android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="1"
+                android:layout_height="46dp"
                 android:overScrollMode="ifContentScrolls"
                 android:scrollbars="vertical">
 
@@ -376,74 +474,12 @@
                     android:layout_height="wrap_content"
                     android:orientation="vertical">
 
-                    <LinearLayout
-                        android:id="@+id/row_ai"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginBottom="8dp"
-                        android:orientation="horizontal">
-
-                        <LinearLayout
-                            android:layout_width="62dp"
-                            android:layout_height="wrap_content"
-                            android:background="@drawable/kb_bg_label_ai"
-                            android:gravity="center"
-                            android:orientation="horizontal"
-                            android:paddingTop="3dp"
-                            android:paddingBottom="3dp">
-
-                            <ImageView
-                                android:layout_width="12dp"
-                                android:layout_height="12dp"
-                                android:importantForAccessibility="no"
-                                android:src="@drawable/kb_ic_sparkle"
-                                android:tint="@color/kb_on_tertiary_container" />
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginStart="2dp"
-                                android:text="@string/kb_label_ai"
-                                android:textColor="@color/kb_on_tertiary_container"
-                                android:textSize="11sp"
-                                android:textStyle="bold" />
-                        </LinearLayout>
-
-                        <LinearLayout
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="10dp"
-                            android:layout_weight="1"
-                            android:orientation="vertical">
-
-                            <TextView
-                                android:id="@+id/text_ai"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:lineSpacingExtra="2dp"
-                                android:textColor="@color/kb_on_surface"
-                                android:textSize="14sp"
-                                android:textStyle="bold" />
-
-                            <TextView
-                                android:id="@+id/text_no_change"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="2dp"
-                                android:text="@string/kb_polish_no_change"
-                                android:textColor="@color/kb_on_surface_variant"
-                                android:textSize="11sp"
-                                android:visibility="gone" />
-                        </LinearLayout>
-                    </LinearLayout>
-
-                    <!-- Polish failed / skipped: say so, and offer a retry
-                         that only re-runs the polish (no new recording). -->
+                    <!-- Polishing failed: say so, with a retry that only
+                         re-runs the polish (no new recording). -->
                     <LinearLayout
                         android:id="@+id/row_notice"
                         android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginBottom="4dp"
+                        android:layout_height="34dp"
                         android:gravity="center_vertical"
                         android:orientation="horizontal"
                         android:visibility="gone">
@@ -472,39 +508,25 @@
                             android:textStyle="bold" />
                     </LinearLayout>
 
-                    <LinearLayout
-                        android:id="@+id/row_raw"
+                    <TextView
+                        android:id="@+id/text_ai"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal">
-
-                        <TextView
-                            android:id="@+id/tag_raw"
-                            android:layout_width="62dp"
-                            android:layout_height="wrap_content"
-                            android:background="@drawable/kb_bg_label"
-                            android:gravity="center"
-                            android:paddingTop="3dp"
-                            android:paddingBottom="3dp"
-                            android:text="@string/kb_label_raw"
-                            android:textColor="@color/kb_on_surface_variant"
-                            android:textSize="11sp"
-                            android:textStyle="bold" />
-
-                        <TextView
-                            android:id="@+id/text_raw"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="10dp"
-                            android:layout_weight="1"
-                            android:ellipsize="end"
-                            android:lineSpacingExtra="2dp"
-                            android:maxLines="2"
-                            android:textColor="@color/kb_on_surface_variant"
-                            android:textSize="14sp" />
-                    </LinearLayout>
+                        android:textColor="@color/kb_on_surface"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
                 </LinearLayout>
             </ScrollView>
+
+            <TextView
+                android:id="@+id/text_raw"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:layout_marginTop="4dp"
+                android:ellipsize="end"
+                android:maxLines="2"
+                android:textColor="@color/kb_on_surface_variant"
+                android:textSize="13sp" />
 
             <LinearLayout
                 android:id="@+id/row_actions"
@@ -515,13 +537,14 @@
 
                 <LinearLayout
                     android:id="@+id/action_insert"
-                    android:contentDescription="@string/kb_action_insert"
                     android:layout_width="wrap_content"
                     android:layout_height="48dp"
                     android:background="@drawable/kb_bg_action_primary_touch"
                     android:clickable="true"
+                    android:contentDescription="@string/kb_action_insert"
                     android:focusable="true"
                     android:gravity="center"
+                    android:minWidth="78dp"
                     android:orientation="horizontal"
                     android:paddingStart="12dp"
                     android:paddingEnd="14dp">
@@ -547,14 +570,15 @@
 
                 <LinearLayout
                     android:id="@+id/action_repolish"
-                    android:contentDescription="@string/kb_action_repolish"
                     android:layout_width="wrap_content"
                     android:layout_height="48dp"
                     android:layout_marginStart="6dp"
                     android:background="@drawable/kb_bg_action_outline_touch"
                     android:clickable="true"
+                    android:contentDescription="@string/kb_action_repolish"
                     android:focusable="true"
                     android:gravity="center"
+                    android:minWidth="102dp"
                     android:orientation="horizontal"
                     android:paddingStart="10dp"
                     android:paddingEnd="12dp">
@@ -567,9 +591,9 @@
                         android:tint="@color/kb_on_surface" />
 
                     <TextView
+                        android:id="@+id/action_repolish_label"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:id="@+id/action_repolish_label"
                         android:layout_marginStart="4dp"
                         android:text="@string/kb_action_repolish"
                         android:textColor="@color/kb_on_surface"
@@ -577,19 +601,16 @@
                         android:textStyle="bold" />
                 </LinearLayout>
 
+                <!-- 36dp visible icon buttons with a 48dp touch box (6dp inset each side). -->
                 <LinearLayout
                     android:id="@+id/action_copy"
-                    android:contentDescription="@string/kb_action_copy"
-                    android:layout_width="wrap_content"
+                    android:layout_width="48dp"
                     android:layout_height="48dp"
-                    android:layout_marginStart="6dp"
-                    android:background="@drawable/kb_bg_action_outline_touch"
+                    android:background="@drawable/kb_bg_action_icon_touch"
                     android:clickable="true"
+                    android:contentDescription="@string/kb_action_copy"
                     android:focusable="true"
-                    android:gravity="center"
-                    android:orientation="horizontal"
-                    android:paddingStart="10dp"
-                    android:paddingEnd="12dp">
+                    android:gravity="center">
 
                     <ImageView
                         android:layout_width="16dp"
@@ -597,49 +618,28 @@
                         android:importantForAccessibility="no"
                         android:src="@drawable/kb_ic_copy"
                         android:tint="@color/kb_on_surface" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:id="@+id/action_copy_label"
-                        android:layout_marginStart="4dp"
-                        android:text="@string/kb_action_copy"
-                        android:textColor="@color/kb_on_surface"
-                        android:textSize="13sp"
-                        android:textStyle="bold" />
                 </LinearLayout>
 
+                <!-- Discard (not inserted yet) and undo (inserted) are one view:
+                     only the icon, the description and the action change. -->
                 <LinearLayout
                     android:id="@+id/action_undo"
-                    android:contentDescription="@string/kb_action_undo"
-                    android:layout_width="wrap_content"
+                    android:layout_width="48dp"
                     android:layout_height="48dp"
-                    android:layout_marginStart="6dp"
-                    android:background="@drawable/kb_bg_action_outline_touch"
+                    android:layout_marginStart="-6dp"
+                    android:background="@drawable/kb_bg_action_icon_touch"
                     android:clickable="true"
+                    android:contentDescription="@string/kb_result_discard"
                     android:focusable="true"
-                    android:gravity="center"
-                    android:orientation="horizontal"
-                    android:paddingStart="10dp"
-                    android:paddingEnd="12dp">
+                    android:gravity="center">
 
                     <ImageView
                         android:id="@+id/action_undo_icon"
                         android:layout_width="16dp"
                         android:layout_height="16dp"
                         android:importantForAccessibility="no"
-                        android:src="@drawable/kb_ic_undo"
+                        android:src="@drawable/kb_ic_close"
                         android:tint="@color/kb_on_surface" />
-
-                    <TextView
-                        android:id="@+id/action_undo_label"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="4dp"
-                        android:text="@string/kb_action_undo"
-                        android:textColor="@color/kb_on_surface"
-                        android:textSize="13sp"
-                        android:textStyle="bold" />
                 </LinearLayout>
             </LinearLayout>
         </LinearLayout>

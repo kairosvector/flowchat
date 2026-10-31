@@ -24,9 +24,13 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.animation.ValueAnimator
 import android.content.res.ColorStateList
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -40,14 +44,12 @@ import android.widget.ScrollView
 import android.widget.TextView
 import androidx.annotation.ColorRes
 import androidx.appcompat.widget.TooltipCompat
-import androidx.core.view.AccessibilityDelegateCompat
-import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
-import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.core.content.ContextCompat
 import androidx.core.math.MathUtils
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.widget.TextViewCompat
 import androidx.datastore.preferences.core.edit
 import com.example.whispertoinput.ErrorDisplay
 import com.example.whispertoinput.ErrorMessageMapper
@@ -58,12 +60,16 @@ import com.example.whispertoinput.PolishNote
 import com.example.whispertoinput.POLISH_ENABLED
 import com.example.whispertoinput.R
 import com.example.whispertoinput.TranscriptionHistory
+import com.example.whispertoinput.TranscriptionRecord
 import com.example.whispertoinput.dataStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.math.log10
 
 private const val AMPLITUDE_CLAMP_MIN: Int = 10
@@ -81,35 +87,40 @@ private const val LANGUAGE_AUTO = LanguageSettings.AUTO
 private const val LANGUAGE_ZH = LanguageSettings.ZH
 private const val LANGUAGE_EN = LanguageSettings.EN
 
-// Largest system font scale the panel follows. The panel is a fixed 280dp,
-// so labels / hints / badges / button text stop growing at 1.15x and the
-// result card's body text at 1.3x (it scrolls); a bigger system scale is
-// not applied beyond that.
-private const val LABEL_MAX_FONT_SCALE: Float = 1.15f
-private const val RESULT_TEXT_MAX_FONT_SCALE: Float = 1.3f
+// Largest system font scale the panel follows (SPEC_r8 §4). The panel is a
+// fixed 280dp, so every text stops growing at 1.15x; a bigger system scale
+// is not applied beyond that.
+private const val MAX_FONT_SCALE: Float = 1.15f
+
+// Line heights of the result card text (sp), so two lines always fit the
+// 46dp / 44dp boxes of SPEC_r8 §2.3 at the capped scale.
+private const val RESULT_AI_LINE_SP: Float = 20f
+private const val RESULT_RAW_LINE_SP: Float = 19f
 
 // Mic key sizes (dp): idle / processing / result vs. the recording stop key.
 private const val MIC_SIZE_DP: Float = 96f
 private const val STOP_SIZE_DP: Float = 84f
 private const val MIC_SIZE_ANIM_MS: Long = 120
 
-private const val SELECTION_GRACE_MS: Long = 500
-
 // How long the "潤飾失敗：…" sentence stays in the status bar (SPEC_layout §3.4: errors 4 s).
 private const val POLISH_ERROR_STATUS_MS: Long = 4000
 
 /**
- * Fork6 redesigned keyboard panel. The whole panel is driven by one
- * [UiState]; [render] is the only place that decides what is visible,
- * so no screen part has its own scattered visibility logic.
+ * Fork6 redesigned keyboard panel (SPEC_r8, layout D). The whole panel is
+ * driven by one [UiState] and the selected [Tab]; [render] is the only place
+ * that decides what is visible, so no screen part has its own scattered
+ * visibility logic.
  */
 class WhisperKeyboard {
     private enum class UiState {
-        Idle,        // Ready to start recording
+        Idle,        // Ready to start recording (an error is only a status text on top of this)
         Recording,   // Currently recording
         Processing,  // Waiting for transcription / polishing
-        Result,      // Result card (raw vs polished) with quick actions
+        Pending,     // Result card, NOT inserted yet (locks the tone key and the tabs)
+        Inserted,    // Result card, inserted (everything unlocked; undo available)
     }
+
+    private enum class Tab { Voice, Clip }
 
     private enum class ProcessingStep { Transcribing, Polishing }
 
@@ -127,52 +138,37 @@ class WhisperKeyboard {
     private var onEnter: () -> Unit = { }
     private var onSpaceBar: () -> Unit = { }
     private var shouldShowRetry: () -> Boolean = { false }
-    // Fork6: result-card actions that need the input connection / network.
+    // Plain text into the editor (history rows).
     private var onInsertText: (String) -> Unit = { }
+    // The result card's text into the editor; with submit = true the field's
+    // own action (send, go ...) or a newline follows (Enter = insert + send).
+    private var onInsertResult: (text: String, submit: Boolean) -> Unit = { _, _ -> }
     // Returns false when the text before the cursor no longer matches
     // what was inserted, in which case nothing was deleted.
     private var onUndoInsert: (String) -> Boolean = { false }
-    // Swaps the text before the cursor for another one (only if it still
-    // matches); false = nothing was changed.
-    private var onReplaceInserted: (old: String, new: String) -> Boolean = { _, _ -> false }
     private var onRepolish: (raw: String, done: (polished: String?, error: ErrorDisplay?) -> Unit) -> Unit =
         { _, done -> done(null, null) }
 
     // ---- state ----
     private var state: UiState = UiState.Idle
+    private var tab: Tab = Tab.Voice
     private var processingStep: ProcessingStep = ProcessingStep.Transcribing
     private var showPolishStep: Boolean = true
     private var repolishing: Boolean = false
     private var stagedRaw: String? = null
 
-    // What polishing did for the result on screen, and whether the (clamped)
-    // original is expanded.
+    // The result card: what polishing did, the texts, and the space / newline
+    // suffix of the space / enter key the recording ended with.
     private var polishNote: PolishNote = PolishNote.OFF
-    private var rawExpanded: Boolean = false
-
-    // Last record (what the history file holds) and the result card.
     private var rawResultText: String? = null
     private var polishedResultText: String? = null
-    private val lastResultText: String? get() = polishedResultText ?: rawResultText
-    // Text that is currently sitting in the editor because of this card
-    // (null = nothing to undo). Undo deletes exactly this many chars.
+    private var pendingSuffix: String = ""
+    private val resultCore: String? get() = polishedResultText ?: rawResultText
+    // Exactly what the card put into the editor (Inserted only); undo deletes it.
     private var insertedText: String? = null
-    // The result text (without the space / newline suffix) that
-    // insertedText corresponds to, so "insert" is only offered for a text
-    // that is not already in the editor.
-    private var insertedBase: String? = null
-    // Where the cursor sat right after the insert (-1 = not seen yet); a
-    // cursor anywhere else means the card no longer owns that text.
-    private var insertedCursor: Int = -1
-    // After the card swapped the inserted original for the polished text:
-    // what was in the editor before (so "undo" can put it back) and which
-    // version of the result that was. Null when nothing was swapped.
-    private var replacedFrom: String? = null
-    private var replacedFromBase: String? = null
-    // Right after our own swap the editor may report the selection twice
-    // (delete, then commit); until this time those updates only re-record
-    // the cursor instead of counting as "the user moved it".
-    private var selectionGraceUntil: Long = 0
+
+    // History tab: the row that shows its delete button (-1 = none).
+    private var deleteIndex: Int = -1
 
     private var polishEnabled: Boolean = true
     private var languageCode: String = LANGUAGE_AUTO
@@ -224,28 +220,27 @@ class WhisperKeyboard {
         transientDetail = null
         renderStatus()
     }
-    private val clearErrorRunnable = Runnable {
-        statusResolver.clearError()
-        errorDetail = null
-        errorRateLimited = false
-        // The hint row falls back to its normal text.
-        render()
-    }
+    private val clearErrorRunnable = Runnable { clearError() }
 
     // ---- views ----
     private var keyboardView: View? = null
-    private var buttonLast: ImageButton? = null
-    private var buttonPolishToggle: ImageButton? = null
+    private var tabVoice: ImageButton? = null
+    private var tabEmoji: ImageButton? = null
+    private var tabClip: ImageButton? = null
+    private var buttonTone: View? = null
+    private var toneLabel: TextView? = null
     private var statusText: TextView? = null
     private var buttonSettings: ImageButton? = null
 
     private var groupMain: View? = null
+    private var groupClip: View? = null
     private var groupResult: View? = null
+    private var clipList: LinearLayout? = null
+    private var clipEmpty: View? = null
     private var keyLanguageCol: View? = null
+    private var keySettingsCol: View? = null
     private var buttonLanguage: ImageButton? = null
     private var labelLanguage: TextView? = null
-    private var keyHistoryCol: View? = null
-    private var buttonHistory: ImageButton? = null
     private var waveLeft: WaveformView? = null
     private var waveRight: WaveformView? = null
     private var pulseRings: PulseRingView? = null
@@ -258,12 +253,8 @@ class WhisperKeyboard {
     private var stepPolish: TextView? = null
     private var buttonRetry: TextView? = null
 
-    private var rowAi: View? = null
     private var rowNotice: View? = null
-    private var textNotice: TextView? = null
     private var buttonNoticeAction: TextView? = null
-    private var textNoChange: TextView? = null
-    private var tagRaw: View? = null
     private var textRaw: TextView? = null
     private var textAi: TextView? = null
     private var actionInsertIcon: ImageView? = null
@@ -272,10 +263,8 @@ class WhisperKeyboard {
     private var actionRepolish: View? = null
     private var actionCopy: View? = null
     private var actionUndo: View? = null
-    private var actionsRow: View? = null
-    private var actionRepolishLabel: View? = null
-    private var actionCopyLabel: View? = null
-    private var actionUndoLabel: View? = null
+    private var actionUndoIcon: ImageView? = null
+    private var actionRepolishLabel: TextView? = null
     private var resultScroll: ScrollView? = null
 
     private var buttonLeftAction: ImageButton? = null
@@ -299,8 +288,8 @@ class WhisperKeyboard {
         onShowInputMethodPicker: () -> Unit = { },
         onButtonBackspaceWord: () -> Unit = { },
         onInsertText: (String) -> Unit = { },
+        onInsertResult: (text: String, submit: Boolean) -> Unit = { _, _ -> },
         onUndoInsert: (String) -> Boolean = { false },
-        onReplaceInserted: (old: String, new: String) -> Boolean = { _, _ -> false },
         onRepolish: (raw: String, done: (polished: String?, error: ErrorDisplay?) -> Unit) -> Unit =
             { _, done -> done(null, null) },
     ): View {
@@ -308,18 +297,23 @@ class WhisperKeyboard {
         keyboardView = root
         offerImeSwitch = shouldOfferImeSwitch
 
-        buttonLast = root.findViewById(R.id.btn_last)
-        buttonPolishToggle = root.findViewById(R.id.btn_polish_toggle)
+        tabVoice = root.findViewById(R.id.tab_voice)
+        tabEmoji = root.findViewById(R.id.tab_emoji)
+        tabClip = root.findViewById(R.id.tab_clip)
+        buttonTone = root.findViewById(R.id.btn_tone)
+        toneLabel = root.findViewById(R.id.tone_label)
         statusText = root.findViewById(R.id.status_text)
         buttonSettings = root.findViewById(R.id.btn_settings)
 
         groupMain = root.findViewById(R.id.group_main)
+        groupClip = root.findViewById(R.id.group_clip)
         groupResult = root.findViewById(R.id.group_result)
+        clipList = root.findViewById(R.id.clip_list)
+        clipEmpty = root.findViewById(R.id.clip_empty)
         keyLanguageCol = root.findViewById(R.id.key_language_col)
+        keySettingsCol = root.findViewById(R.id.key_settings_col)
         buttonLanguage = root.findViewById(R.id.btn_language)
         labelLanguage = root.findViewById(R.id.label_language)
-        keyHistoryCol = root.findViewById(R.id.key_history_col)
-        buttonHistory = root.findViewById(R.id.btn_history)
         waveLeft = root.findViewById<WaveformView>(R.id.wave_left).also { it.newestOnRight = true }
         waveRight = root.findViewById<WaveformView>(R.id.wave_right).also { it.newestOnRight = false }
         pulseRings = root.findViewById(R.id.pulse_rings)
@@ -332,24 +326,18 @@ class WhisperKeyboard {
         stepPolish = root.findViewById(R.id.step_polish)
         buttonRetry = root.findViewById(R.id.btn_retry)
 
-        rowAi = root.findViewById(R.id.row_ai)
         rowNotice = root.findViewById(R.id.row_notice)
-        textNotice = root.findViewById(R.id.text_notice)
         buttonNoticeAction = root.findViewById(R.id.btn_notice_action)
-        textNoChange = root.findViewById(R.id.text_no_change)
-        tagRaw = root.findViewById(R.id.tag_raw)
         textRaw = root.findViewById(R.id.text_raw)
         textAi = root.findViewById(R.id.text_ai)
         actionInsertIcon = root.findViewById(R.id.action_insert_icon)
         actionInsertLabel = root.findViewById(R.id.action_insert_label)
         actionInsert = root.findViewById(R.id.action_insert)
         actionRepolish = root.findViewById(R.id.action_repolish)
+        actionRepolishLabel = root.findViewById(R.id.action_repolish_label)
         actionCopy = root.findViewById(R.id.action_copy)
         actionUndo = root.findViewById(R.id.action_undo)
-        actionsRow = root.findViewById(R.id.row_actions)
-        actionRepolishLabel = root.findViewById(R.id.action_repolish_label)
-        actionCopyLabel = root.findViewById(R.id.action_copy_label)
-        actionUndoLabel = root.findViewById(R.id.action_undo_label)
+        actionUndoIcon = root.findViewById(R.id.action_undo_icon)
         resultScroll = root.findViewById(R.id.result_scroll)
 
         buttonLeftAction = root.findViewById(R.id.btn_left_action)
@@ -371,11 +359,13 @@ class WhisperKeyboard {
         this.onSpaceBar = onSpaceBar
         this.shouldShowRetry = shouldShowRetry
         this.onInsertText = onInsertText
+        this.onInsertResult = onInsertResult
         this.onUndoInsert = onUndoInsert
-        this.onReplaceInserted = onReplaceInserted
         this.onRepolish = onRepolish
 
-        capFontScale(root, root.resources.configuration.fontScale)
+        val fontScale = root.resources.configuration.fontScale
+        capFontScale(root, fontScale)
+        applyResultLineHeights(root, fontScale)
         applyNavigationBarInset(root)
         setupMicGesture()
         buttonLeftAction!!.setOnClickListener { onLeftActionClick() }
@@ -383,45 +373,37 @@ class WhisperKeyboard {
         buttonSpaceBar!!.setOnClickListener { onButtonSpaceBarClick() }
         buttonEnter!!.setOnClickListener { onButtonEnterClick() }
         buttonBackspace!!.setBackspaceCallback(
-            { clearInserted(); this.onButtonBackspace() },
-            { clearInserted(); this.onButtonBackspaceWord() }
+            { collapseInserted(); this.onButtonBackspace() },
+            { collapseInserted(); this.onButtonBackspaceWord() }
         )
         buttonSettings!!.setOnClickListener {
-            statusResolver.clearError()
+            clearError()
             this.onOpenSettings()
         }
-        buttonLast!!.setOnClickListener {
-            statusResolver.clearError()
-            clearInserted()
-            lastResultText?.let { this.onInsertText(it) }
-        }
-        updateLastTooltip()
-        ViewCompat.setAccessibilityDelegate(buttonPolishToggle!!, object : AccessibilityDelegateCompat() {
-            override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfoCompat) {
+        tabVoice!!.setOnClickListener { onTabVoiceClick() }
+        tabClip!!.setOnClickListener { onTabClipClick() }
+        ViewCompat.setAccessibilityDelegate(buttonTone!!, object : androidx.core.view.AccessibilityDelegateCompat() {
+            override fun onInitializeAccessibilityNodeInfo(
+                host: View, info: androidx.core.view.accessibility.AccessibilityNodeInfoCompat
+            ) {
                 super.onInitializeAccessibilityNodeInfo(host, info)
                 info.className = "android.widget.Switch"
                 info.isCheckable = true
                 info.isChecked = polishEnabled
             }
         })
-        buttonPolishToggle!!.setOnClickListener { onButtonPolishToggleClick() }
+        buttonTone!!.setOnClickListener { onToneKeyClick() }
         buttonLanguage!!.setOnClickListener { onLanguageClick() }
-        buttonHistory!!.setOnClickListener { onHistoryClick() }
         buttonRetry!!.setOnClickListener { onButtonRetryClick() }
         actionInsert!!.setOnClickListener { onActionInsert() }
         actionRepolish!!.setOnClickListener { onActionRepolish() }
-        actionCopy!!.setOnClickListener { copyText(lastResultText) }
-        actionUndo!!.setOnClickListener { onActionUndo() }
-        // Retry / force the polish only (the recording is not repeated).
-        buttonNoticeAction!!.setOnClickListener { onActionRepolish() }
-        // The original is clamped to two lines next to a polished text;
-        // tapping it expands / collapses it.
-        textRaw!!.setOnClickListener {
-            if (state == UiState.Result && !polishedResultText.isNullOrEmpty()) {
-                rawExpanded = !rawExpanded
-                render()
-            }
+        actionCopy!!.setOnClickListener {
+            haptic(it, HapticFeedbackConstants.KEYBOARD_TAP)
+            copyText(resultCore)
         }
+        actionUndo!!.setOnClickListener { onActionUndoOrDiscard() }
+        // Retry the polish only (the recording is not repeated).
+        buttonNoticeAction!!.setOnClickListener { onActionRepolish() }
 
         // Resets keyboard upon setup
         reset()
@@ -437,8 +419,15 @@ class WhisperKeyboard {
         handler.removeCallbacks(ticker)
         repolishing = false
         stagedRaw = null
-        forgetInserted()
-        refreshLastRecord()
+        insertedText = null
+        // A result that was never inserted is dropped when the keyboard
+        // shows or hides again; the history still has it.
+        rawResultText = null
+        polishedResultText = null
+        pendingSuffix = ""
+        polishNote = PolishNote.OFF
+        deleteIndex = -1
+        tab = Tab.Voice
         setState(UiState.Idle)
         // Re-read the toggle and the language on every reset (the service
         // calls reset() when the keyboard window is shown), so a change
@@ -474,52 +463,57 @@ class WhisperKeyboard {
         handler.removeCallbacks(ticker)
         repolishing = false
         stagedRaw = null
-        forgetInserted()
-        refreshLastRecord()
+        insertedText = null
+        tab = Tab.Voice
         state = UiState.Idle
         statusResolver.setError(error.text, durationMs, SystemClock.uptimeMillis())
         render()
+        keyboardView?.let { haptic(it, rejectHaptic(), onlyFrom = Build.VERSION_CODES.R) }
         handler.removeCallbacks(clearErrorRunnable)
         handler.postDelayed(clearErrorRunnable, durationMs)
     }
 
     /**
-     * The transcription finished and [insertedText] was committed to the
-     * editor. [raw] and [polished] are handed over directly by the
-     * transcriber (not read back from the history file, which may have
-     * failed to save); [insertedText] is what "undo" will delete again.
+     * A polished (or failed-to-polish) transcription is ready but NOT in the
+     * editor yet: the card waits for "insert" (SPEC_r8 RESULT_PENDING).
+     * [textWithAttach] is the core text plus the suffix of the space / enter
+     * key the recording ended with.
      */
     fun showResult(
         raw: String,
         polished: String?,
-        insertedText: String?,
+        textWithAttach: String?,
         note: PolishNote,
         polishError: ErrorDisplay? = null
     ) {
         rawResultText = raw
         polishedResultText = polished?.takeIf { it.isNotEmpty() }
         polishNote = note
-        rawExpanded = false
-        val inserted = insertedText?.takeIf { it.isNotEmpty() }
-        this.insertedText = inserted
-        this.insertedBase = if (inserted != null) lastResultText else null
-        this.insertedCursor = -1
-        this.replacedFrom = null
-        this.replacedFromBase = null
+        val core = resultCore.orEmpty()
+        pendingSuffix = textWithAttach?.takeIf { it.startsWith(core) }?.substring(core.length).orEmpty()
+        insertedText = null
         repolishing = false
         stagedRaw = null
+        tab = Tab.Voice
         resultScroll?.scrollTo(0, 0)
-        updateLastTooltip()
-        setState(UiState.Result)
+        setState(UiState.Pending)
         val ctx = keyboardView?.context
         if (note == PolishNote.FAILED && ctx != null) {
-            // The raw text is already inserted; say why polishing failed
-            // (the result card keeps showing "已插入" and the retry link).
+            // The raw text waits on the card; say why polishing failed
+            // (the card shows "AI 潤飾失敗 · 重試").
             val shown = polishError ?: ErrorMessageMapper.other(ErrorStage.POLISH).display(ctx)
             showStatus(shown.text, POLISH_ERROR_STATUS_MS, shown.detail)
-        } else if (inserted != null && ctx != null) {
-            showStatus(ctx.getString(R.string.kb_action_inserted), 2000L)
         }
+    }
+
+    /** The text went straight into the editor (AI off, or too short to polish): no card. */
+    fun showDirectInserted() {
+        insertedText = null
+        repolishing = false
+        stagedRaw = null
+        tab = Tab.Voice
+        setState(UiState.Idle)
+        showStatus(R.string.kb_action_inserted, 2000L)
     }
 
     /** Stage 1: STT finished, show the raw text in the preview chip. */
@@ -571,6 +565,14 @@ class WhisperKeyboard {
         }
     }
 
+    /**
+     * The editor's selection changed (the service forwards
+     * onUpdateSelection). Since r8 the card no longer follows the cursor:
+     * undo checks the text before the cursor itself, so nothing to do here.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    fun onSelectionChanged(selStart: Int, selEnd: Int) = Unit
+
     // =====================================================================
     // State transitions
     // =====================================================================
@@ -592,13 +594,21 @@ class WhisperKeyboard {
     }
 
     private fun startRecording() {
-        statusResolver.clearError()
-        forgetInserted()
+        clearError()
+        // Whatever was on the card (pending or inserted) is done with; a
+        // result that was not inserted stays in the history.
+        insertedText = null
+        rawResultText = null
+        polishedResultText = null
+        pendingSuffix = ""
+        tab = Tab.Voice
+        haptic(buttonMic, confirmHaptic())
         setState(UiState.Recording)
         onStartRecording()
     }
 
     private fun cancelRecording() {
+        haptic(buttonMic, rejectHaptic())
         setState(UiState.Idle)
         onCancelRecording()
     }
@@ -611,6 +621,26 @@ class WhisperKeyboard {
         setState(UiState.Processing)
     }
 
+    /** INSERTED -> IDLE: the card is put away (typing in the editor, switching tabs ...). */
+    private fun collapseInserted() {
+        if (state != UiState.Inserted) return
+        insertedText = null
+        rawResultText = null
+        polishedResultText = null
+        pendingSuffix = ""
+        setState(UiState.Idle)
+    }
+
+    private fun clearError() {
+        handler.removeCallbacks(clearErrorRunnable)
+        if (statusResolver.errorText == null && errorDetail == null && !errorRateLimited) return
+        statusResolver.clearError()
+        errorDetail = null
+        errorRateLimited = false
+        // Status bar and hint row go in the same pass, so the hint never outlives the error.
+        render()
+    }
+
     // =====================================================================
     // The one place that decides what is on screen
     // =====================================================================
@@ -619,14 +649,17 @@ class WhisperKeyboard {
         val view = keyboardView ?: return
         val context = view.context
         val s = state
+        val showCard = s == UiState.Pending || s == UiState.Inserted
+        val showClip = tab == Tab.Clip && !showCard
 
         renderTopRow(context, s)
 
-        groupMain?.visibility = if (s == UiState.Result) View.GONE else View.VISIBLE
-        groupResult?.visibility = if (s == UiState.Result) View.VISIBLE else View.GONE
+        groupMain?.visibility = if (showCard || showClip) View.GONE else View.VISIBLE
+        groupClip?.visibility = if (showClip) View.VISIBLE else View.GONE
+        groupResult?.visibility = if (showCard) View.VISIBLE else View.GONE
 
         keyLanguageCol?.visibility = if (s == UiState.Idle) View.VISIBLE else View.GONE
-        keyHistoryCol?.visibility = if (s == UiState.Idle) View.VISIBLE else View.GONE
+        keySettingsCol?.visibility = if (s == UiState.Idle) View.VISIBLE else View.GONE
         waveLeft?.visibility = if (s == UiState.Recording) View.VISIBLE else View.GONE
         waveRight?.visibility = if (s == UiState.Recording) View.VISIBLE else View.GONE
         pulseRings?.visibility = if (s == UiState.Recording) View.VISIBLE else View.GONE
@@ -635,7 +668,8 @@ class WhisperKeyboard {
         renderMic(context, s)
         renderHintRow(context, s)
         renderBottomRow(context, s)
-        if (s == UiState.Result) renderResultCard(context)
+        if (showCard) renderResultCard(context)
+        if (showClip) renderHistory(context)
 
         view.keepScreenOn = s == UiState.Recording || s == UiState.Processing
     }
@@ -646,37 +680,39 @@ class WhisperKeyboard {
         view.alpha = if (enabled) 1f else 0.38f
     }
 
-    private fun updateLastTooltip() {
-        buttonLast?.let { btn ->
-            TooltipCompat.setTooltipText(btn, lastResultText?.take(40))
-        }
-    }
-
     private fun renderTopRow(context: Context, s: UiState) {
-        val last = buttonLast
-        val polish = buttonPolishToggle
+        val voice = tabVoice
+        val clip = tabClip
+        val tone = buttonTone
         val backspace = buttonBackspace
 
-        val hasLast = !lastResultText.isNullOrEmpty()
+        // Tabs: 🎤 is always the way home; the others are only free when
+        // nothing is recording, processing or waiting to be inserted.
+        voice?.isSelected = tab == Tab.Voice
+        clip?.isSelected = tab == Tab.Clip
+        voice?.let { ViewCompat.setStateDescription(it, if (it.isSelected) context.getString(R.string.kb_state_selected) else null) }
+        clip?.let { ViewCompat.setStateDescription(it, if (it.isSelected) context.getString(R.string.kb_state_selected) else null) }
+        val tabsFree = s == UiState.Idle || s == UiState.Inserted
+        setKeyEnabled(voice, true)
+        setKeyEnabled(clip, tabsFree)
+
         when (s) {
-            UiState.Idle -> {
-                setKeyEnabled(last, hasLast)
-                setKeyEnabled(polish, true)
+            UiState.Idle, UiState.Inserted -> {
+                setKeyEnabled(tone, true)
                 setKeyEnabled(backspace, true)
             }
             UiState.Recording -> {
-                setKeyEnabled(last, false)
-                setKeyEnabled(polish, true)
+                // The tone is read when the request is sent, so it can still change.
+                setKeyEnabled(tone, true)
                 setKeyEnabled(backspace, false)
             }
             UiState.Processing -> {
-                setKeyEnabled(last, false)
-                setKeyEnabled(polish, false)
+                setKeyEnabled(tone, false)
                 setKeyEnabled(backspace, false)
             }
-            UiState.Result -> {
-                setKeyEnabled(last, hasLast)
-                setKeyEnabled(polish, true)
+            UiState.Pending -> {
+                // The card's tone is already decided: change it after inserting or discarding.
+                setKeyEnabled(tone, false)
                 setKeyEnabled(backspace, true)
             }
         }
@@ -698,7 +734,7 @@ class WhisperKeyboard {
             else -> context.getString(R.string.kb_step_transcribing)
         }
         val defaultText = when (state) {
-            UiState.Result -> if (insertedText == null) context.getString(R.string.kb_result_hint_insert) else ""
+            UiState.Pending -> context.getString(R.string.kb_result_hint_insert)
             else -> ""
         }
 
@@ -740,7 +776,7 @@ class WhisperKeyboard {
     private fun renderMic(context: Context, s: UiState) {
         val mic = buttonMic ?: return
         when (s) {
-            UiState.Idle, UiState.Result -> {
+            UiState.Idle, UiState.Pending, UiState.Inserted -> {
                 mic.setBackgroundResource(R.drawable.kb_bg_mic_idle)
                 mic.scaleType = ImageView.ScaleType.FIT_CENTER
                 mic.setImageResource(R.drawable.kb_ic_mic)
@@ -815,8 +851,7 @@ class WhisperKeyboard {
                 hint.visibility = View.VISIBLE
                 hint.setText(
                     when {
-                        s == UiState.Idle && errorRateLimited ->
-                            if (shouldShowRetry()) R.string.kb_hint_rate_limited_retry else R.string.kb_hint_rate_limited
+                        s == UiState.Idle && errorRateLimited -> R.string.kb_hint_rate_limited
                         s == UiState.Idle -> R.string.kb_hint_idle
                         cancelArmed -> R.string.kb_hint_cancel_armed
                         else -> R.string.kb_hint_recording
@@ -830,7 +865,7 @@ class WhisperKeyboard {
                 renderStepChips(context)
             }
 
-            UiState.Result -> {
+            UiState.Pending, UiState.Inserted -> {
                 hint.visibility = View.GONE
                 steps.visibility = View.GONE
             }
@@ -891,7 +926,7 @@ class WhisperKeyboard {
                 left.contentDescription = context.getString(R.string.kb_cancel)
             }
 
-            UiState.Result -> {
+            UiState.Pending, UiState.Inserted -> {
                 left.visibility = View.VISIBLE
                 left.setBackgroundResource(R.drawable.kb_bg_key_primary)
                 left.setImageResource(R.drawable.kb_ic_mic)
@@ -901,72 +936,74 @@ class WhisperKeyboard {
         }
     }
 
+    // ---- result card ----
+
+    // A line that starts with a small rounded tag ("✦ 專業", "原文").
+    private fun tagged(context: Context, label: String, body: String, @ColorRes bg: Int, @ColorRes fg: Int): CharSequence {
+        val density = context.resources.displayMetrics.density
+        val scale = density * minOf(context.resources.configuration.fontScale, MAX_FONT_SCALE)
+        val builder = SpannableStringBuilder("​")
+        builder.setSpan(
+            TagSpan(
+                label, color(context, bg), color(context, fg),
+                textSizePx = 11f * scale, hPaddingPx = 6f * density, vPaddingPx = 2f * density,
+                radiusPx = 6f * density, gapPx = 6f * density
+            ),
+            0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        builder.append(body)
+        return builder
+    }
+
     private fun renderResultCard(context: Context) {
+        val inserted = state == UiState.Inserted
         val raw = rawResultText.orEmpty()
         val polished = polishedResultText
         val hasPolished = !polished.isNullOrEmpty()
+        val failed = !hasPolished && polishNote == PolishNote.FAILED
 
-        // Polished text on top (it is what gets inserted), the original
-        // under it in grey: two lines, tap to expand, no strike-through.
-        // Without a polished text there is one text only, in full.
-        rowAi?.visibility = if (hasPolished) View.VISIBLE else View.GONE
-        textAi?.text = polished.orEmpty()
-        textNoChange?.visibility =
-            if (hasPolished && polished == raw) View.VISIBLE else View.GONE
-        tagRaw?.visibility = if (hasPolished) View.VISIBLE else View.GONE
+        rowNotice?.visibility = if (failed) View.VISIBLE else View.GONE
+        textAi?.visibility = if (hasPolished) View.VISIBLE else View.GONE
+        if (hasPolished) {
+            textAi?.text = tagged(
+                context, "✦ " + context.getString(R.string.kb_tone_pro_short), polished.orEmpty(),
+                R.color.kb_tertiary_container, R.color.kb_on_tertiary_container
+            )
+        }
         textRaw?.let {
-            it.text = raw
-            val clamp = hasPolished && !rawExpanded
-            it.maxLines = if (clamp) 2 else Int.MAX_VALUE
-            it.ellipsize = if (clamp) android.text.TextUtils.TruncateAt.END else null
-            it.setTextColor(
-                color(context, if (hasPolished) R.color.kb_on_surface_variant else R.color.kb_on_surface)
-            )
-            val lp = it.layoutParams as ViewGroup.MarginLayoutParams
-            val start = if (hasPolished) (10f * context.resources.displayMetrics.density).toInt() else 0
-            if (lp.marginStart != start) {
-                lp.marginStart = start
-                it.layoutParams = lp
+            it.text = if (hasPolished) {
+                tagged(context, context.getString(R.string.kb_label_raw), raw, R.color.kb_key_alt, R.color.kb_on_surface_variant)
+            } else {
+                raw
             }
+            it.setTextColor(color(context, if (hasPolished) R.color.kb_on_surface_variant else R.color.kb_on_surface))
         }
 
-        // Polishing did not give a text although it was on: say why, never
-        // just show the raw text as if nothing happened.
-        val showNotice = !hasPolished &&
-            (polishNote == PolishNote.FAILED || polishNote == PolishNote.TOO_SHORT)
-        rowNotice?.visibility = if (showNotice) View.VISIBLE else View.GONE
-        if (showNotice) {
-            val failed = polishNote == PolishNote.FAILED
-            textNotice?.setText(if (failed) R.string.kb_polish_failed else R.string.kb_polish_too_short)
-            textNotice?.setTextColor(
-                color(context, if (failed) R.color.kb_recording else R.color.kb_on_surface_variant)
-            )
-            buttonNoticeAction?.setText(if (failed) R.string.kb_polish_retry else R.string.kb_polish_force)
-        }
-
-        // Insert is only useful while the current text is not already the
-        // one sitting in the editor; undo only while something is there.
-        val hasText = !lastResultText.isNullOrEmpty()
-        renderInsertButton(context, inserted = hasText && insertedBase == lastResultText, hasText = hasText)
-        setActionEnabled(actionUndo, insertedText != null)
-        setActionEnabled(actionRepolish, raw.isNotEmpty())
-        setActionEnabled(actionCopy, !lastResultText.isNullOrEmpty())
+        // Insert is a solid primary button until the text is in the editor;
+        // then it turns into a tonal "✓ 已插入" that is really disabled.
+        renderInsertButton(context, inserted)
+        // Repolish only while nothing is inserted (it would not change the editor).
+        setActionEnabled(actionRepolish, !inserted && raw.isNotEmpty())
+        setActionEnabled(actionCopy, !resultCore.isNullOrEmpty())
+        // Discard (✕) before the insert, undo after it: one view, two meanings.
+        actionUndoIcon?.setImageResource(if (inserted) R.drawable.kb_ic_undo else R.drawable.kb_ic_close)
+        actionUndo?.contentDescription =
+            context.getString(if (inserted) R.string.kb_action_undo else R.string.kb_result_discard)
+        setActionEnabled(actionUndo, true)
         fitResultActions()
     }
 
-    // The four buttons must never overflow or be cut off, whatever the
-    // screen width or font scale: if they do not fit with their labels,
-    // repolish / copy / undo drop to icon-only (48dp wide); their
-    // contentDescription (set in the layout) keeps them readable by TalkBack.
+    // The actions must never overflow or be cut off, whatever the screen
+    // width or font scale: if they do not fit with their labels, repolish
+    // drops to icon-only; its contentDescription keeps it readable by TalkBack.
     private fun fitResultActions() {
-        val row = actionsRow as? ViewGroup ?: return
+        val row = actionRepolishLabel?.parent?.parent as? ViewGroup ?: return
         val card = groupResult ?: return
         val root = keyboardView ?: return
         val density = root.resources.displayMetrics.density
-        val labels = listOf(actionRepolishLabel, actionCopyLabel, actionUndoLabel)
-        val iconOnly = listOf(actionRepolish, actionCopy, actionUndo)
-        labels.forEach { it?.visibility = View.VISIBLE }
-        iconOnly.forEach { it?.minimumWidth = 0 }
+        val label = actionRepolishLabel ?: return
+        label.visibility = View.VISIBLE
+        actionRepolish?.minimumWidth = (102f * density).toInt()
         // panel padding 8dp x2, card padding 12dp x2 and its 1dp border
         val available = root.width - (16f + 2f) * density - card.paddingLeft - card.paddingRight
         if (available <= 0f) return
@@ -981,14 +1018,12 @@ class WhisperKeyboard {
             total += child.measuredWidth + lp.marginStart + lp.marginEnd
         }
         if (total > available) {
-            labels.forEach { it?.visibility = View.GONE }
-            iconOnly.forEach { it?.minimumWidth = (48f * density).toInt() }
+            label.visibility = View.GONE
+            actionRepolish?.minimumWidth = (48f * density).toInt()
         }
     }
 
-    // "Insert" is a solid primary button until the text is in the editor;
-    // then it turns into a tonal "✓ 已插入" that is really disabled.
-    private fun renderInsertButton(context: Context, inserted: Boolean, hasText: Boolean) {
+    private fun renderInsertButton(context: Context, inserted: Boolean) {
         val button = actionInsert ?: return
         val icon = actionInsertIcon ?: return
         val label = actionInsertLabel ?: return
@@ -1006,15 +1041,112 @@ class WhisperKeyboard {
             icon.imageTintList = tint(context, R.color.kb_on_primary)
             label.setText(R.string.kb_action_insert)
             label.setTextColor(color(context, R.color.kb_on_primary))
-            setActionEnabled(button, hasText)
+            setActionEnabled(button, !resultCore.isNullOrEmpty())
         }
     }
 
     private fun setActionEnabled(action: View?, enabled: Boolean) {
         action ?: return
         action.isEnabled = enabled
-        action.alpha = if (enabled) 1f else 0.4f
+        action.alpha = if (enabled) 1f else 0.38f
     }
+
+    // ---- history tab ----
+
+    private fun renderHistory(context: Context) {
+        val list = clipList ?: return
+        list.removeAllViews()
+        val records = TranscriptionHistory.loadAll(context)
+        clipEmpty?.visibility = if (records.isEmpty()) View.VISIBLE else View.GONE
+        records.forEachIndexed { index, record -> list.addView(historyRow(context, index, record)) }
+    }
+
+    private fun historyRow(context: Context, index: Int, record: TranscriptionRecord): View {
+        val density = context.resources.displayMetrics.density
+        val text = record.polishedText ?: record.rawText
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundResource(R.drawable.kb_bg_key)
+            setPadding((12 * density).toInt(), 0, (12 * density).toInt(), 0)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, (44 * density).toInt()
+            ).apply { bottomMargin = (4 * density).toInt() }
+            isClickable = true
+            isFocusable = true
+            contentDescription = text
+        }
+        row.addView(ImageView(context).apply {
+            setImageResource(R.drawable.kb_ic_history)
+            imageTintList = tint(context, R.color.kb_on_surface_variant)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            layoutParams = LinearLayout.LayoutParams((18 * density).toInt(), (18 * density).toInt())
+        })
+        row.addView(TextView(context).apply {
+            this.text = text.replace(Regex("\\s+"), " ")
+            setTextColor(color(context, R.color.kb_on_surface))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f * historyScale(context))
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                .apply { marginStart = (10 * density).toInt() }
+        })
+        if (index == deleteIndex) {
+            row.addView(TextView(context).apply {
+                this.text = context.getString(R.string.kb_clip_delete)
+                setTextColor(color(context, R.color.kb_recording))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f * historyScale(context))
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                gravity = Gravity.CENTER
+                minimumWidth = (48 * density).toInt()
+                minimumHeight = (44 * density).toInt()
+                isClickable = true
+                setOnClickListener {
+                    TranscriptionHistory.delete(context, index)
+                    deleteIndex = -1
+                    renderHistory(context)
+                }
+            })
+        } else {
+            row.addView(TextView(context).apply {
+                this.text = timeLabel(context, record.timestampMillis)
+                setTextColor(color(context, R.color.kb_on_surface_variant))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f * historyScale(context))
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { marginStart = (8 * density).toInt() }
+            })
+        }
+        row.setOnClickListener {
+            haptic(it, HapticFeedbackConstants.KEYBOARD_TAP)
+            deleteIndex = -1
+            if (state == UiState.Inserted) collapseInserted()
+            onInsertText(text)
+            renderHistory(context)
+        }
+        row.setOnLongClickListener {
+            haptic(it, HapticFeedbackConstants.LONG_PRESS)
+            deleteIndex = if (deleteIndex == index) -1 else index
+            renderHistory(context)
+            true
+        }
+        return row
+    }
+
+    // Text built in code has to follow the same 1.15x cap as the XML text.
+    private fun historyScale(context: Context): Float {
+        val fs = context.resources.configuration.fontScale
+        return if (fs > MAX_FONT_SCALE) MAX_FONT_SCALE / fs else 1f
+    }
+
+    private fun timeLabel(context: Context, timestampMillis: Long): String =
+        when (val t = RelativeTime.of(System.currentTimeMillis(), timestampMillis)) {
+            RelativeTime.JustNow -> context.getString(R.string.kb_time_now)
+            is RelativeTime.MinutesAgo -> context.getString(R.string.kb_time_min, t.minutes)
+            is RelativeTime.HoursAgo -> context.getString(R.string.kb_time_hour, t.hours)
+            RelativeTime.Yesterday -> context.getString(R.string.kb_time_yesterday)
+            RelativeTime.Older -> SimpleDateFormat("M/d", Locale.getDefault()).format(Date(timestampMillis))
+        }
 
     // =====================================================================
     // Mic gesture: tap = start / stop, hold = talk (release sends),
@@ -1091,6 +1223,7 @@ class WhisperKeyboard {
 
     private fun stopAndTranscribe() {
         if (state != UiState.Recording) return
+        haptic(buttonMic, HapticFeedbackConstants.KEYBOARD_TAP)
         beginProcessing()
         onStartTranscribing("")
     }
@@ -1100,12 +1233,13 @@ class WhisperKeyboard {
     // =====================================================================
 
     private fun onLeftActionClick() {
-        statusResolver.clearError()
+        clearError()
         when (state) {
             UiState.Idle -> onSwitchIme()
             UiState.Recording -> cancelRecording()
             UiState.Processing -> cancelProcessing()
-            UiState.Result -> startRecording()
+            // Record again: the card that was not inserted stays in the history.
+            UiState.Pending, UiState.Inserted -> startRecording()
         }
     }
 
@@ -1120,39 +1254,58 @@ class WhisperKeyboard {
 
     private fun cancelProcessing() {
         onCancelTranscribing()
-        val cameFromResult = repolishing
+        val cameFromCard = repolishing
         repolishing = false
         stagedRaw = null
-        if (cameFromResult && !rawResultText.isNullOrEmpty()) {
-            setState(UiState.Result)
+        haptic(buttonLeftAction, rejectHaptic())
+        if (cameFromCard && !rawResultText.isNullOrEmpty()) {
+            setState(UiState.Pending)
         } else {
             setState(UiState.Idle)
         }
     }
 
     private fun onButtonSpaceBarClick() {
-        statusResolver.clearError()
+        clearError()
         // Recording -> Start transcribing (with a whitespace included)
-        // else -> invokes onSpaceBar
+        // else -> types a space into the editor (a pending card stays)
         if (state == UiState.Recording) {
             beginProcessing()
             onStartTranscribing(" ")
         } else {
-            clearInserted()
+            collapseInserted()
             onSpaceBar()
         }
     }
 
     private fun onButtonEnterClick() {
-        statusResolver.clearError()
-        // Recording -> Start transcribing (with a newline included)
-        // else -> invokes onEnter
-        if (state == UiState.Recording) {
-            beginProcessing()
-            onStartTranscribing("\r\n")
-        } else {
-            clearInserted()
-            onEnter()
+        clearError()
+        when (state) {
+            // Recording -> Start transcribing (with a newline included)
+            UiState.Recording -> {
+                beginProcessing()
+                onStartTranscribing("\r\n")
+            }
+            // Enter = insert + send (SPEC_r8 §9.2)
+            UiState.Pending -> {
+                val text = resultCore?.takeIf { it.isNotEmpty() }?.plus(pendingSuffix)
+                if (text == null) {
+                    onEnter()
+                } else {
+                    haptic(buttonEnter, HapticFeedbackConstants.KEYBOARD_TAP)
+                    insertedText = null
+                    rawResultText = null
+                    polishedResultText = null
+                    pendingSuffix = ""
+                    setState(UiState.Idle)
+                    onInsertResult(text, true)
+                }
+            }
+            UiState.Inserted -> {
+                collapseInserted()
+                onEnter()
+            }
+            else -> onEnter()
         }
     }
 
@@ -1164,143 +1317,69 @@ class WhisperKeyboard {
         }
     }
 
-    private fun onHistoryClick() {
-        if (state != UiState.Idle) return
-        refreshLastRecord()
-        if (rawResultText.isNullOrEmpty()) {
-            showStatus(R.string.kb_toast_no_history, 2000L)
-            return
+    private fun onTabVoiceClick() {
+        haptic(tabVoice, HapticFeedbackConstants.KEYBOARD_TAP)
+        collapseInserted()
+        if (tab != Tab.Voice) {
+            tab = Tab.Voice
+            deleteIndex = -1
+            render()
         }
-        // Showing the last result again: nothing of it is in the editor
-        // yet as far as this card knows, so insert is offered, undo is not.
-        forgetInserted()
-        // The history file keeps only what was polished; a failure is not stored.
-        polishNote = if (polishedResultText.isNullOrEmpty()) PolishNote.OFF else PolishNote.OK
-        rawExpanded = false
-        resultScroll?.scrollTo(0, 0)
-        setState(UiState.Result)
+    }
+
+    private fun onTabClipClick() {
+        if (state != UiState.Idle && state != UiState.Inserted) return
+        haptic(tabClip, HapticFeedbackConstants.KEYBOARD_TAP)
+        collapseInserted()
+        tab = Tab.Clip
+        deleteIndex = -1
+        render()
     }
 
     private fun onActionInsert() {
-        val text = lastResultText ?: return
-        if (insertedBase == text) return
-        // An older version of this result is still in the editor (e.g. the
-        // original after an undo-restore): swap it instead of adding a copy.
-        if (insertedText != null && replaceOwned(text)) {
-            render()
-            return
-        }
-        onInsertText(text)
+        if (state != UiState.Pending) return
+        val core = resultCore?.takeIf { it.isNotEmpty() } ?: return
+        haptic(actionInsert, HapticFeedbackConstants.KEYBOARD_TAP)
+        val text = core + pendingSuffix
+        onInsertResult(text, false)
         insertedText = text
-        insertedBase = text
-        insertedCursor = -1
-        replacedFrom = null
-        replacedFromBase = null
-        render()
-        val context = keyboardView?.context
-        if (context != null) {
-            showStatus(context.getString(R.string.kb_action_inserted), 2000L)
-        }
+        setState(UiState.Inserted)
+        showStatus(R.string.kb_action_inserted, 2000L)
     }
 
-    /**
-     * Replaces the text this card put into the editor with [newBase] (plus
-     * the same trailing space / newline it had). The service only does it
-     * when the text before the cursor still equals what was inserted; if
-     * not, nothing is touched and the card gives the text up, so "insert"
-     * is offered again. Returns whether the editor was changed.
-     */
-    private fun replaceOwned(newBase: String): Boolean {
-        val old = insertedText ?: return false
-        val oldBase = insertedBase ?: return false
-        val suffix = if (old.startsWith(oldBase)) old.substring(oldBase.length) else ""
-        val replacement = newBase + suffix
-        if (!onReplaceInserted(old, replacement)) {
-            forgetInserted()
-            return false
-        }
-        replacedFrom = old
-        replacedFromBase = oldBase
-        insertedText = replacement
-        insertedBase = newBase
-        insertedCursor = -1
-        selectionGraceUntil = SystemClock.uptimeMillis() + SELECTION_GRACE_MS
-        return true
-    }
-
-    private fun forgetInserted() {
-        insertedText = null
-        insertedBase = null
-        insertedCursor = -1
-        replacedFrom = null
-        replacedFromBase = null
-    }
-
-    private fun onActionUndo() {
-        val inserted = insertedText ?: return
-        // The polished text replaced the original: undo puts the original
-        // back (it does not delete the whole thing). The card then still
-        // shows the polished text and "insert" swaps it in again.
-        val original = replacedFrom
-        val context = keyboardView?.context
-        if (original != null) {
-            val restored = onReplaceInserted(inserted, original)
-            if (restored) {
-                insertedText = original
-                insertedBase = replacedFromBase
-                replacedFrom = null
-                replacedFromBase = null
-                insertedCursor = -1
-                selectionGraceUntil = SystemClock.uptimeMillis() + SELECTION_GRACE_MS
-                if (context != null) showStatus(context.getString(R.string.kb_toast_restored), 2000L)
-            } else {
-                forgetInserted()
-                if (context != null) showStatus(context.getString(R.string.kb_toast_undo_failed), 2000L)
+    // One view, two meanings: discard before the insert, undo after it.
+    private fun onActionUndoOrDiscard() {
+        haptic(actionUndo, HapticFeedbackConstants.KEYBOARD_TAP)
+        when (state) {
+            UiState.Pending -> {
+                rawResultText = null
+                polishedResultText = null
+                pendingSuffix = ""
+                setState(UiState.Idle)
+                showStatus(R.string.kb_status_discarded, 2000L)
             }
-            render()
-            return
-        }
-        // The service only deletes when the text before the cursor is
-        // still exactly what was inserted; either way the card gives up
-        // the text afterwards, so undo is disabled.
-        val removed = onUndoInsert(inserted)
-        forgetInserted()
-        if (context != null) {
-            showStatus(context.getString(if (removed) R.string.kb_toast_undone else R.string.kb_toast_undo_failed), 2000L)
-        }
-        render()
-    }
 
-    /**
-     * The editor's selection changed (the service forwards
-     * onUpdateSelection). The first change after an insert is the insert
-     * itself and only records where the cursor is; any later change means
-     * the cursor was moved or the text edited, so undo is withdrawn.
-     */
-    fun onSelectionChanged(selStart: Int, selEnd: Int) {
-        if (insertedText == null) return
-        if (SystemClock.uptimeMillis() < selectionGraceUntil && selStart == selEnd) {
-            insertedCursor = selEnd
-            return
-        }
-        if (selStart != selEnd) {
-            clearInserted()
-        } else if (insertedCursor < 0) {
-            insertedCursor = selEnd
-        } else if (selEnd != insertedCursor) {
-            clearInserted()
-        }
-    }
+            UiState.Inserted -> {
+                val inserted = insertedText ?: return
+                // The service only deletes when the text before the cursor is
+                // still exactly what was inserted.
+                if (onUndoInsert(inserted)) {
+                    insertedText = null
+                    setState(UiState.Pending)
+                    showStatus(R.string.kb_toast_undone, 2000L)
+                } else {
+                    showStatus(R.string.kb_toast_undo_failed, 2000L)
+                }
+            }
 
-    /** Forget the inserted text: undo is disabled and insert is offered again. */
-    fun clearInserted() {
-        if (insertedText == null && insertedBase == null) return
-        forgetInserted()
-        if (state == UiState.Result) render()
+            else -> Unit
+        }
     }
 
     private fun onActionRepolish() {
+        if (state != UiState.Pending) return
         val raw = rawResultText?.takeIf { it.isNotEmpty() } ?: return
+        haptic(actionRepolish, HapticFeedbackConstants.KEYBOARD_TAP)
         processingStep = ProcessingStep.Polishing
         showPolishStep = true
         repolishing = true
@@ -1324,30 +1403,28 @@ class WhisperKeyboard {
             } else {
                 polishedResultText = polished
                 polishNote = PolishNote.OK
-                rawExpanded = false
-                // The original is already in the editor: swap it for the
-                // polished text, if (and only if) it is still right there.
-                if (insertedText != null && insertedBase == rawResultText && polished != rawResultText) {
-                    replaceOwned(polished)
-                }
             }
             resultScroll?.scrollTo(0, 0)
-            setState(UiState.Result)
+            setState(UiState.Pending)
         }
     }
 
     // =====================================================================
-    // Settings-backed bits: polish toggle and language
+    // Settings-backed bits: AI tone key and language
     // =====================================================================
 
-    private fun updatePolishToggleButton() {
-        val toggle = buttonPolishToggle ?: return
-        val context = toggle.context
-        val on = polishEnabled
-        toggle.isActivated = on
+    // Interim until the tone menu (round 11b): the key shows 專業 or 關 and a
+    // tap switches AI polishing on / off, like the old AI key did.
+    private fun updateToneKey() {
+        val key = buttonTone ?: return
+        val context = key.context
+        key.isActivated = polishEnabled
+        val name = context.getString(if (polishEnabled) R.string.kb_tone_pro_short else R.string.kb_tone_off_short)
+        toneLabel?.text = name
+        key.contentDescription = context.getString(R.string.kb_tone_cd, name)
         ViewCompat.setStateDescription(
-            toggle,
-            context.getString(if (on) R.string.kb_state_open else R.string.kb_state_closed)
+            key,
+            context.getString(if (polishEnabled) R.string.kb_state_open else R.string.kb_state_closed)
         )
     }
 
@@ -1362,18 +1439,19 @@ class WhisperKeyboard {
                 // Reading failure keeps the default (on).
                 polishEnabled = true
             }
-            updatePolishToggleButton()
+            updateToneKey()
         }
     }
 
-    private fun onButtonPolishToggleClick() {
+    private fun onToneKeyClick() {
         val context = keyboardView?.context ?: return
+        haptic(buttonTone, HapticFeedbackConstants.KEYBOARD_TAP)
         // Flip and paint immediately, then persist. The new value only
         // takes effect for the NEXT recording: WhisperTranscriber
         // snapshots POLISH_ENABLED once, before its STT request.
         val newValue = !polishEnabled
         polishEnabled = newValue
-        updatePolishToggleButton()
+        updateToneKey()
         showStatus(
             context.getString(if (newValue) R.string.kb_status_polish_on else R.string.kb_status_polish_off),
             1500L
@@ -1384,10 +1462,10 @@ class WhisperKeyboard {
                     settings[POLISH_ENABLED] = newValue
                 }
             } catch (_: Exception) {
-                // Persist failure: revert the paint so the button never
+                // Persist failure: revert the paint so the key never
                 // claims a state that was not saved.
                 polishEnabled = !newValue
-                updatePolishToggleButton()
+                updateToneKey()
             }
         }
     }
@@ -1436,6 +1514,7 @@ class WhisperKeyboard {
     // the same LANGUAGE_CODE the settings page edits.
     private fun onLanguageClick() {
         val context = keyboardView?.context ?: return
+        haptic(buttonLanguage, HapticFeedbackConstants.KEYBOARD_TAP)
         val cycle = listOfNotNull(LANGUAGE_AUTO, LANGUAGE_ZH, LANGUAGE_EN, customLanguageCode)
         val index = cycle.indexOf(languageCode)
         val next = if (index < 0) LANGUAGE_AUTO else cycle[(index + 1) % cycle.size]
@@ -1459,21 +1538,23 @@ class WhisperKeyboard {
     // =====================================================================
 
     // Fixed 280dp panel: stop the system font scale from pushing text past
-    // the caps above. A text view keeps its XML sp size up to the cap and is
+    // the 1.15x cap. A text view keeps its XML sp size up to the cap and is
     // scaled down in px beyond it (never up).
     private fun capFontScale(view: View, fontScale: Float) {
-        if (view is TextView && fontScale > 1f) {
-            val cap = when (view.id) {
-                R.id.text_raw, R.id.text_ai -> RESULT_TEXT_MAX_FONT_SCALE
-                else -> LABEL_MAX_FONT_SCALE
-            }
-            if (fontScale > cap) {
-                view.setTextSize(TypedValue.COMPLEX_UNIT_PX, view.textSize * cap / fontScale)
-            }
+        if (view is TextView && fontScale > MAX_FONT_SCALE) {
+            view.setTextSize(TypedValue.COMPLEX_UNIT_PX, view.textSize * MAX_FONT_SCALE / fontScale)
         }
         if (view is ViewGroup) {
             for (i in 0 until view.childCount) capFontScale(view.getChildAt(i), fontScale)
         }
+    }
+
+    // 20sp / 19sp line heights at the capped scale, so two lines of the
+    // polished text (46dp) and of the original (44dp) fit exactly.
+    private fun applyResultLineHeights(root: View, fontScale: Float) {
+        val scale = root.resources.displayMetrics.density * minOf(fontScale, MAX_FONT_SCALE)
+        textAi?.let { TextViewCompat.setLineHeight(it, (RESULT_AI_LINE_SP * scale).toInt()) }
+        textRaw?.let { TextViewCompat.setLineHeight(it, (RESULT_RAW_LINE_SP * scale).toInt()) }
     }
 
     // The panel's 8dp bottom margin is measured above the system gesture /
@@ -1495,18 +1576,6 @@ class WhisperKeyboard {
         }
     }
 
-    private fun refreshLastRecord() {
-        try {
-            val context = keyboardView?.context ?: return
-            val record = TranscriptionHistory.loadLast(context)
-            rawResultText = record?.rawText
-            polishedResultText = record?.polishedText
-            updateLastTooltip()
-        } catch (_: Exception) {
-            // Best-effort only; a missing record just shows the default.
-        }
-    }
-
     private fun copyText(text: String?) {
         if (text.isNullOrEmpty()) return
         val context = keyboardView?.context ?: return
@@ -1520,7 +1589,21 @@ class WhisperKeyboard {
         }
     }
 
+    // ---- haptics (SPEC_r8 §8): follow the system setting, API-level fallbacks ----
 
+    private fun confirmHaptic(): Int =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) HapticFeedbackConstants.CONFIRM
+        else HapticFeedbackConstants.LONG_PRESS
+
+    private fun rejectHaptic(): Int =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) HapticFeedbackConstants.REJECT
+        else HapticFeedbackConstants.LONG_PRESS
+
+    // [onlyFrom]: the API level the constant exists on (errors do not vibrate below it).
+    private fun haptic(view: View?, constant: Int, onlyFrom: Int = 0) {
+        if (Build.VERSION.SDK_INT < onlyFrom) return
+        view?.performHapticFeedback(constant)
+    }
 
     private fun color(context: Context, @ColorRes id: Int): Int = ContextCompat.getColor(context, id)
 
