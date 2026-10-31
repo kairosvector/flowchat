@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- AI polish key: tertiaryContainer fill when on (activated), outlined when
+     off. Shapes sit in <item>s: a bare <shape> directly under <ripple> is not drawn. -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:state_activated="true">
         <inset
@@ -7,10 +9,12 @@
             android:insetRight="4dp"
             android:insetBottom="4dp">
             <ripple android:color="@color/kb_ripple">
-                <shape android:shape="rectangle">
-                    <corners android:radius="12dp" />
-                    <solid android:color="@color/kb_tertiary_container" />
-                </shape>
+                <item>
+                    <shape android:shape="rectangle">
+                        <corners android:radius="12dp" />
+                        <solid android:color="@color/kb_tertiary_container" />
+                    </shape>
+                </item>
             </ripple>
         </inset>
     </item>
@@ -21,13 +25,15 @@
             android:insetRight="4dp"
             android:insetBottom="4dp">
             <ripple android:color="@color/kb_ripple">
-                <shape android:shape="rectangle">
-                    <corners android:radius="12dp" />
-                    <solid android:color="@android:color/transparent" />
-                    <stroke
-                        android:width="1.5dp"
-                        android:color="@color/kb_outline" />
-                </shape>
+                <item>
+                    <shape android:shape="rectangle">
+                        <corners android:radius="12dp" />
+                        <solid android:color="@android:color/transparent" />
+                        <stroke
+                            android:width="1.5dp"
+                            android:color="@color/kb_outline" />
+                    </shape>
+                </item>
             </ripple>
         </inset>
     </item>
