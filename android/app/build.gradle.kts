@@ -15,7 +15,7 @@ android {
         minSdk = 24
         targetSdk = 34
         // Fork: bumped so this build is distinguishable from upstream v0.4.
-        versionCode = 11
+        versionCode = 12
         versionName = "0.4-fork6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
