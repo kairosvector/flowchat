@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 34dp visual inside a 48dp touch target (7dp inset top and bottom). -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/kb_bg_action_primary"
+    android:insetTop="7dp"
+    android:insetBottom="7dp" />

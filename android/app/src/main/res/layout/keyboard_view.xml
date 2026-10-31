@@ -427,90 +427,97 @@
             android:paddingStart="12dp"
             android:paddingTop="10dp"
             android:paddingEnd="12dp"
-            android:paddingBottom="10dp"
+            android:paddingBottom="2dp"
             android:visibility="gone">
 
-            <LinearLayout
-                android:id="@+id/row_raw"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:layout_width="62dp"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/kb_bg_label"
-                    android:gravity="center"
-                    android:paddingTop="3dp"
-                    android:paddingBottom="3dp"
-                    android:text="@string/kb_label_raw"
-                    android:textColor="@color/kb_on_surface_variant"
-                    android:textSize="11sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/text_raw"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="10dp"
-                    android:layout_weight="1"
-                    android:ellipsize="end"
-                    android:lineSpacingExtra="2dp"
-                    android:maxLines="2"
-                    android:textColor="@color/kb_on_surface_variant"
-                    android:textSize="14sp" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:id="@+id/row_ai"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:layout_width="62dp"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/kb_bg_label_ai"
-                    android:gravity="center"
-                    android:paddingTop="3dp"
-                    android:paddingBottom="3dp"
-                    android:text="@string/kb_label_ai"
-                    android:textColor="@color/kb_on_tertiary_container"
-                    android:textSize="11sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/text_ai"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="10dp"
-                    android:layout_weight="1"
-                    android:ellipsize="end"
-                    android:lineSpacingExtra="2dp"
-                    android:maxLines="2"
-                    android:textColor="@color/kb_on_surface"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
-            </LinearLayout>
-
-            <View
+            <!-- Long texts scroll inside the card; the actions below stay put. -->
+            <ScrollView
+                android:id="@+id/result_scroll"
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
-                android:layout_weight="1" />
+                android:layout_weight="1"
+                android:overScrollMode="ifContentScrolls"
+                android:scrollbars="vertical">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                <LinearLayout
+                    android:id="@+id/row_raw"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="62dp"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/kb_bg_label"
+                        android:gravity="center"
+                        android:paddingTop="3dp"
+                        android:paddingBottom="3dp"
+                        android:text="@string/kb_label_raw"
+                        android:textColor="@color/kb_on_surface_variant"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/text_raw"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="10dp"
+                        android:layout_weight="1"
+                        android:lineSpacingExtra="2dp"
+                        android:textColor="@color/kb_on_surface_variant"
+                        android:textSize="14sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/row_ai"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="62dp"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/kb_bg_label_ai"
+                        android:gravity="center"
+                        android:paddingTop="3dp"
+                        android:paddingBottom="3dp"
+                        android:text="@string/kb_label_ai"
+                        android:textColor="@color/kb_on_tertiary_container"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/text_ai"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="10dp"
+                        android:layout_weight="1"
+                        android:lineSpacingExtra="2dp"
+                        android:textColor="@color/kb_on_surface"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+                </LinearLayout>
+            </ScrollView>
 
             <LinearLayout
                 android:id="@+id/row_actions"
                 android:layout_width="match_parent"
-                android:layout_height="34dp"
+                android:layout_height="48dp"
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
 
                 <LinearLayout
                     android:id="@+id/action_insert"
                     android:layout_width="wrap_content"
-                    android:layout_height="34dp"
-                    android:background="@drawable/kb_bg_action_primary"
+                    android:layout_height="48dp"
+                    android:background="@drawable/kb_bg_action_primary_touch"
                     android:clickable="true"
                     android:focusable="true"
                     android:gravity="center"
@@ -540,9 +547,9 @@
                 <LinearLayout
                     android:id="@+id/action_repolish"
                     android:layout_width="wrap_content"
-                    android:layout_height="34dp"
+                    android:layout_height="48dp"
                     android:layout_marginStart="6dp"
-                    android:background="@drawable/kb_bg_action_outline"
+                    android:background="@drawable/kb_bg_action_outline_touch"
                     android:clickable="true"
                     android:focusable="true"
                     android:gravity="center"
@@ -570,9 +577,9 @@
                 <LinearLayout
                     android:id="@+id/action_copy"
                     android:layout_width="wrap_content"
-                    android:layout_height="34dp"
+                    android:layout_height="48dp"
                     android:layout_marginStart="6dp"
-                    android:background="@drawable/kb_bg_action_outline"
+                    android:background="@drawable/kb_bg_action_outline_touch"
                     android:clickable="true"
                     android:focusable="true"
                     android:gravity="center"
@@ -600,9 +607,9 @@
                 <LinearLayout
                     android:id="@+id/action_undo"
                     android:layout_width="wrap_content"
-                    android:layout_height="34dp"
+                    android:layout_height="48dp"
                     android:layout_marginStart="6dp"
-                    android:background="@drawable/kb_bg_action_outline"
+                    android:background="@drawable/kb_bg_action_outline_touch"
                     android:clickable="true"
                     android:focusable="true"
                     android:gravity="center"

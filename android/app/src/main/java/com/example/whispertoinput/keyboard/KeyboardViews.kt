@@ -136,8 +136,15 @@ class PulseRingView(context: Context, attrs: AttributeSet?) : View(context, attr
         updateAnimation()
     }
 
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(visibility)
+        updateAnimation()
+    }
+
+    // isShown also covers a hidden ancestor and a hidden window, which
+    // the view's own visibility flag does not.
     private fun updateAnimation() {
-        if (isAttachedToWindow && visibility == VISIBLE) {
+        if (isShown) {
             if (!animator.isStarted) animator.start()
         } else {
             animator.cancel()
@@ -167,9 +174,8 @@ class PulseRingView(context: Context, attrs: AttributeSet?) : View(context, attr
 
     private companion object {
         const val PULSE_DURATION_MS = 1200L
-        // The notes scale the rings 1.0 -> 1.25; 1.1 keeps the outer ring
-        // inside the 280dp panel once the hint line is below it.
-        const val GROW = 0.10f
+        // Rings scale 1.0 -> 1.25 while fading out (DESIGN_NOTES.md).
+        const val GROW = 0.25f
     }
 }
 
@@ -212,8 +218,15 @@ class SpinnerRingView(context: Context, attrs: AttributeSet?) : View(context, at
         updateAnimation()
     }
 
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(visibility)
+        updateAnimation()
+    }
+
+    // isShown also covers a hidden ancestor and a hidden window, which
+    // the view's own visibility flag does not.
     private fun updateAnimation() {
-        if (isAttachedToWindow && visibility == VISIBLE) {
+        if (isShown) {
             if (!animator.isStarted) animator.start()
         } else {
             animator.cancel()
