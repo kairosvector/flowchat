@@ -50,7 +50,7 @@ enum class PolishStage {
 enum class PolishNote {
     /** Polishing is switched off (or there was nothing to polish). */
     OFF,
-    /** The text was not longer than [POLISH_MIN_LENGTH]; polishing was skipped by design. */
+    /** Fewer than [POLISH_MIN_COUNTED_CHARS] counted characters; polishing was skipped by design. */
     TOO_SHORT,
     /** The LLM call failed (HTTP error, timeout, empty reply ...). */
     FAILED,
@@ -172,7 +172,8 @@ class WhisperTranscriber {
             stageCallback?.invoke(PolishStage.RAW, trimmedCore)
             var polishedCore: String? = null
             var polishNote = PolishNote.OFF
-            if (polishEnabled && trimmedCore.length > POLISH_MIN_LENGTH) {
+            val countedChars = countPolishChars(trimmedCore)
+            if (polishEnabled && countedChars >= POLISH_MIN_COUNTED_CHARS) {
                 stageCallback?.invoke(PolishStage.POLISHING, null)
                 val llmKey = llmApiKey.ifBlank { apiKey }
                 polishedCore = PolishClient.polish(
@@ -187,7 +188,11 @@ class WhisperTranscriber {
                 )
                 polishNote = if (polishedCore != null) PolishNote.OK else PolishNote.FAILED
             } else if (polishEnabled) {
-                Log.i(TAG, "polish skipped: ${trimmedCore.length} chars is not over the $POLISH_MIN_LENGTH-char minimum")
+                Log.i(
+                    TAG,
+                    "polish skipped: $countedChars counted chars (punctuation/whitespace excluded), " +
+                        "minimum is $POLISH_MIN_COUNTED_CHARS"
+                )
                 polishNote = PolishNote.TOO_SHORT
             }
             val finalCore = polishedCore ?: trimmedCore

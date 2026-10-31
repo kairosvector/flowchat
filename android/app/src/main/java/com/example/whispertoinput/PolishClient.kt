@@ -28,15 +28,63 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /**
- * Default short-text skip threshold.
- *
- * This number is a fork default chosen by the implementer, NOT a
- * number kevy set: kevy's rule is only "too-short text skips polish",
- * with no threshold specified. If kevy later picks a number, change
- * this single constant (and the CHANGES.md note) and nothing else.
- * Comparison is on the trimmed raw text length in characters.
+ * Fork6 round 5 (Kevy's rule): text is polished when it has at least this
+ * many counted characters, 4 included; fewer than this and polishing is
+ * skipped (the result card says so and offers "仍要潤飾"). Counting is done
+ * by [countPolishChars]: punctuation and whitespace do not count.
+ * Change this single constant to change the rule.
  */
-const val POLISH_MIN_LENGTH = 10
+const val POLISH_MIN_COUNTED_CHARS = 4
+
+/** True when [text] has enough counted characters to be worth polishing. */
+fun shouldPolish(text: String): Boolean = countPolishChars(text) >= POLISH_MIN_COUNTED_CHARS
+
+/**
+ * Number of characters of [text] that count towards [POLISH_MIN_COUNTED_CHARS]:
+ * everything except whitespace (any Unicode space, tabs, newlines, control /
+ * format characters) and punctuation (any Unicode punctuation, ASCII
+ * punctuation, and the full-width / half-width forms of it). Letters, digits,
+ * CJK characters and emoji count. Counting goes by user-perceived
+ * characters, so an emoji (surrogate pair, skin-tone or ZWJ sequence)
+ * counts once, not once per code unit.
+ */
+fun countPolishChars(text: String): Int {
+    val iterator = java.text.BreakIterator.getCharacterInstance()
+    iterator.setText(text)
+    var count = 0
+    var start = iterator.first()
+    var end = iterator.next()
+    while (end != java.text.BreakIterator.DONE) {
+        var i = start
+        while (i < end) {
+            val cp = text.codePointAt(i)
+            if (isCountedCodePoint(cp)) {
+                count++
+                break
+            }
+            i += Character.charCount(cp)
+        }
+        start = end
+        end = iterator.next()
+    }
+    return count
+}
+
+private fun isCountedCodePoint(cp: Int): Boolean {
+    if (Character.isWhitespace(cp) || Character.isSpaceChar(cp)) return false
+    when (Character.getType(cp).toByte()) {
+        Character.CONTROL, Character.FORMAT,
+        Character.CONNECTOR_PUNCTUATION, Character.DASH_PUNCTUATION,
+        Character.START_PUNCTUATION, Character.END_PUNCTUATION,
+        Character.INITIAL_QUOTE_PUNCTUATION, Character.FINAL_QUOTE_PUNCTUATION,
+        Character.OTHER_PUNCTUATION -> return false
+    }
+    // ASCII punctuation that Unicode files under symbols (+ < = > ^ ` | ~ $).
+    if (cp in 0x21..0x2F || cp in 0x3A..0x40 || cp in 0x5B..0x60 || cp in 0x7B..0x7E) return false
+    // Full-width / half-width forms block: its symbols are punctuation too.
+    if (cp in 0xFF00..0xFFEF && !Character.isLetterOrDigit(cp)) return false
+    return true
+}
 
 const val DEFAULT_LLM_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
 const val DEFAULT_LLM_MODEL = "qwen/qwen3.8-27b"
