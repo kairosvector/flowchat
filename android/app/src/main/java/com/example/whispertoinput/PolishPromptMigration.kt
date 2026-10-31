@@ -30,8 +30,9 @@ import kotlinx.coroutines.flow.map
  * The prompt itself lives in the settings DataStore (LLM_PROMPT); only the
  * "which default version has been dealt with" number lives in
  * SharedPreferences. When that number is behind POLISH_PROMPT_VERSION:
- *  - a saved prompt that is empty, or exactly the fork5 default, was never
- *    customised, so it is replaced with the new default;
+ *  - a saved prompt that is empty, or exactly an earlier default (fork5, or
+ *    the round 1 - 3 one), was never customised, so it is replaced with the
+ *    new default;
  *  - anything else was edited by the user and is left untouched;
  *  - either way the version is recorded, so this runs only once.
  */
@@ -51,7 +52,8 @@ object PolishPromptMigration {
             }.first()
             // null = nothing saved yet (the settings page will seed the
             // new default itself); blank or fork5 default = never edited.
-            if (saved != null && (saved.isBlank() || saved == LEGACY_POLISH_PROMPT_V1)) {
+            if (saved != null && (saved.isBlank() || saved == LEGACY_POLISH_PROMPT_V1 ||
+                    saved == LEGACY_POLISH_PROMPT_V2)) {
                 appContext.dataStore.edit { settings ->
                     settings[LLM_PROMPT] = DEFAULT_POLISH_PROMPT
                 }
