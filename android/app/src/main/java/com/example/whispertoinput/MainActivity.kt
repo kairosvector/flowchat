@@ -325,7 +325,12 @@ class MainActivity : AppCompatActivity() {
     // confirmation, then overwrites the field AND the saved value with the
     // current default prompt, so it also takes effect without pressing Apply.
     private fun setupPromptResetButton() {
-        findViewById<Button>(R.id.btn_llm_prompt_reset).setOnClickListener {
+        val resetButton = findViewById<Button>(R.id.btn_llm_prompt_reset)
+        // Stays disabled until the settings have been loaded into the
+        // fields; a reset before that would be overwritten by the load.
+        resetButton.isEnabled = false
+        resetButton.setOnClickListener {
+            if (!setupSettingItemsDone) return@setOnClickListener
             AlertDialog.Builder(this)
                 .setTitle(R.string.settings_llm_prompt_reset_title)
                 .setMessage(R.string.settings_llm_prompt_reset_message)
@@ -403,6 +408,7 @@ class MainActivity : AppCompatActivity() {
             }
             settingItems.map { settingItem -> settingItem.setup() }.joinAll()
             setupSettingItemsDone = true
+            findViewById<Button>(R.id.btn_llm_prompt_reset).isEnabled = true
         }
     }
 }
