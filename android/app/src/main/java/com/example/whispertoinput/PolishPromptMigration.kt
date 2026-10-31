@@ -22,59 +22,41 @@ package com.example.whispertoinput
 import android.content.Context
 import androidx.datastore.preferences.core.edit
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
 
 /**
- * Fork6: one-time move of the saved polish prompt to the new default.
+ * Round 11b: the one-time move from the single `llm-prompt` / `polish-enabled`
+ * settings to the tone list (SPEC_r8 §15, prompt version 3 -> 4).
  *
- * The prompt itself lives in the settings DataStore (LLM_PROMPT); only the
- * "which default version has been dealt with" number lives in
- * SharedPreferences. When that number is behind POLISH_PROMPT_VERSION:
- *  - a saved prompt that is empty, or exactly an earlier default (fork5, or
- *    the round 1 - 3 one), was never customised, so it is replaced with the
- *    new default;
- *  - anything else was edited by the user and is left untouched;
- *  - either way the version is recorded, so this runs only once.
+ * The rules themselves are [ToneMigration] (pure, unit tested); this only
+ * reads the settings, writes `tones-json` (and `polish-tone` when it is not
+ * there yet) and records that it ran. It runs only while `tones-json` is
+ * missing, so a second call, or a call after the user edited the tones,
+ * changes nothing. `llm-prompt` is only read, never written or deleted.
  */
 object PolishPromptMigration {
     private const val PREFS_NAME = "whisper_input_prefs"
     private const val KEY_PROMPT_VERSION = "polish_prompt_version"
-
-    /**
-     * Records that the saved prompt is up to date (the user saved or reset it
-     * on the settings page), so the one-time migration never touches it.
-     */
-    fun markCurrent(context: Context) {
-        try {
-            context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit().putInt(KEY_PROMPT_VERSION, POLISH_PROMPT_VERSION).apply()
-        } catch (_: Exception) {
-            // Best effort.
-        }
-    }
 
     /** Safe to call from any coroutine and any number of times. */
     suspend fun runIfNeeded(context: Context) {
         try {
             val appContext = context.applicationContext
             val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            if (prefs.getInt(KEY_PROMPT_VERSION, 0) >= POLISH_PROMPT_VERSION) return
-
-            val saved: String? = appContext.dataStore.data.map { preferences ->
-                preferences[LLM_PROMPT]
-            }.first()
-            // null = nothing saved yet (the settings page will seed the
-            // new default itself); blank or fork5 default = never edited.
-            if (saved != null && (saved.isBlank() || saved == LEGACY_POLISH_PROMPT_V1 ||
-                    saved == LEGACY_POLISH_PROMPT_V2)) {
+            val current = appContext.dataStore.data.first()
+            if (ToneCodec.parse(current[TONES_JSON]) == null) {
+                val outcome = ToneMigration.migrate(current[LLM_PROMPT], current[POLISH_ENABLED])
                 appContext.dataStore.edit { settings ->
-                    settings[LLM_PROMPT] = DEFAULT_POLISH_PROMPT
+                    settings[TONES_JSON] = ToneCodec.encode(outcome.tones)
+                    if (settings[POLISH_TONE] == null) {
+                        settings[POLISH_TONE] = outcome.polishTone
+                    }
+                    settings[POLISH_ENABLED] = settings[POLISH_TONE] != TONE_OFF
                 }
             }
             prefs.edit().putInt(KEY_PROMPT_VERSION, POLISH_PROMPT_VERSION).apply()
         } catch (_: Exception) {
-            // Best effort: a failure leaves the version unrecorded, so
-            // the next start simply tries again.
+            // Best effort: ToneStore.resolve gives the same answer in memory
+            // until the next start tries again.
         }
     }
 }

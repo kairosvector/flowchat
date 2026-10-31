@@ -57,7 +57,11 @@ import com.example.whispertoinput.ErrorStage
 import com.example.whispertoinput.LANGUAGE_CODE
 import com.example.whispertoinput.LanguageSettings
 import com.example.whispertoinput.PolishNote
-import com.example.whispertoinput.POLISH_ENABLED
+import com.example.whispertoinput.TONE_OFF
+import com.example.whispertoinput.TONE_PRO
+import com.example.whispertoinput.TonePrompts
+import com.example.whispertoinput.ToneState
+import com.example.whispertoinput.ToneStore
 import com.example.whispertoinput.R
 import com.example.whispertoinput.TranscriptionHistory
 import com.example.whispertoinput.TranscriptionRecord
@@ -146,8 +150,11 @@ class WhisperKeyboard {
     // Returns false when the text before the cursor no longer matches
     // what was inserted, in which case nothing was deleted.
     private var onUndoInsert: (String) -> Boolean = { false }
-    private var onRepolish: (raw: String, done: (polished: String?, error: ErrorDisplay?) -> Unit) -> Unit =
-        { _, done -> done(null, null) }
+    // Re-polish with the card's tone (SPEC_r8: it never changes the tone).
+    private var onRepolish: (raw: String, toneId: String?, done: (polished: String?, error: ErrorDisplay?) -> Unit) -> Unit =
+        { _, _, done -> done(null, null) }
+    // "編輯" in the prompt viewer: open that tone's edit screen in the settings.
+    private var onOpenToneEditor: (toneId: String) -> Unit = { }
 
     // ---- state ----
     private var state: UiState = UiState.Idle
@@ -170,7 +177,17 @@ class WhisperKeyboard {
     // History tab: the row that shows its delete button (-1 = none).
     private var deleteIndex: Int = -1
 
-    private var polishEnabled: Boolean = true
+    // The tone list and the current tone (cached; reloaded on every reset()).
+    private var toneState: ToneState = ToneState(TonePrompts.defaultTones(), TONE_PRO)
+    private val polishEnabled: Boolean get() = toneState.polishOn
+    // The tone the result card was made with (re-polish and its tag use it).
+    private var cardToneId: String? = null
+
+    private enum class Overlay { None, Menu, Viewer }
+    private var overlay: Overlay = Overlay.None
+    private var viewerToneId: String? = null
+    // Result cards fading out (so a quick re-show can cancel the hide).
+    private val hidingGroups = HashSet<View>()
     private var languageCode: String = LANGUAGE_AUTO
     private var customLanguageCode: String? = null
 
@@ -272,6 +289,16 @@ class WhisperKeyboard {
     private var buttonBackspace: BackspaceButton? = null
     private var buttonEnter: ImageButton? = null
 
+    private var scrim: View? = null
+    private var toneMenu: View? = null
+    private var toneMenuList: LinearLayout? = null
+    private var promptSheet: View? = null
+    private var promptChips: LinearLayout? = null
+    private var promptText: TextView? = null
+    private var promptScroll: ScrollView? = null
+    private var promptBack: View? = null
+    private var promptEdit: View? = null
+
     fun setup(
         layoutInflater: LayoutInflater,
         shouldOfferImeSwitch: Boolean,
@@ -290,8 +317,9 @@ class WhisperKeyboard {
         onInsertText: (String) -> Unit = { },
         onInsertResult: (text: String, submit: Boolean) -> Unit = { _, _ -> },
         onUndoInsert: (String) -> Boolean = { false },
-        onRepolish: (raw: String, done: (polished: String?, error: ErrorDisplay?) -> Unit) -> Unit =
-            { _, done -> done(null, null) },
+        onRepolish: (raw: String, toneId: String?, done: (polished: String?, error: ErrorDisplay?) -> Unit) -> Unit =
+            { _, _, done -> done(null, null) },
+        onOpenToneEditor: (toneId: String) -> Unit = { },
     ): View {
         val root = layoutInflater.inflate(R.layout.keyboard_view, null)
         keyboardView = root
@@ -344,6 +372,15 @@ class WhisperKeyboard {
         buttonSpaceBar = root.findViewById(R.id.btn_space_bar)
         buttonBackspace = root.findViewById(R.id.btn_backspace)
         buttonEnter = root.findViewById(R.id.btn_enter)
+        scrim = root.findViewById(R.id.scrim)
+        toneMenu = root.findViewById(R.id.tone_menu)
+        toneMenuList = root.findViewById(R.id.tone_menu_list)
+        promptSheet = root.findViewById(R.id.prompt_sheet)
+        promptChips = root.findViewById(R.id.prompt_chips)
+        promptText = root.findViewById(R.id.prompt_text)
+        promptScroll = root.findViewById(R.id.prompt_scroll)
+        promptBack = root.findViewById(R.id.prompt_back)
+        promptEdit = root.findViewById(R.id.prompt_edit)
 
         // Event listeners supplied by the service
         this.onStartRecording = onStartRecording
@@ -362,6 +399,7 @@ class WhisperKeyboard {
         this.onInsertResult = onInsertResult
         this.onUndoInsert = onUndoInsert
         this.onRepolish = onRepolish
+        this.onOpenToneEditor = onOpenToneEditor
 
         val fontScale = root.resources.configuration.fontScale
         capFontScale(root, fontScale)
@@ -373,8 +411,8 @@ class WhisperKeyboard {
         buttonSpaceBar!!.setOnClickListener { onButtonSpaceBarClick() }
         buttonEnter!!.setOnClickListener { onButtonEnterClick() }
         buttonBackspace!!.setBackspaceCallback(
-            { collapseInserted(); this.onButtonBackspace() },
-            { collapseInserted(); this.onButtonBackspaceWord() }
+            { if (!closeOverlayIfOpen()) { collapseInserted(); this.onButtonBackspace() } },
+            { if (!closeOverlayIfOpen()) { collapseInserted(); this.onButtonBackspaceWord() } }
         )
         buttonSettings!!.setOnClickListener {
             clearError()
@@ -382,17 +420,10 @@ class WhisperKeyboard {
         }
         tabVoice!!.setOnClickListener { onTabVoiceClick() }
         tabClip!!.setOnClickListener { onTabClipClick() }
-        ViewCompat.setAccessibilityDelegate(buttonTone!!, object : androidx.core.view.AccessibilityDelegateCompat() {
-            override fun onInitializeAccessibilityNodeInfo(
-                host: View, info: androidx.core.view.accessibility.AccessibilityNodeInfoCompat
-            ) {
-                super.onInitializeAccessibilityNodeInfo(host, info)
-                info.className = "android.widget.Switch"
-                info.isCheckable = true
-                info.isChecked = polishEnabled
-            }
-        })
         buttonTone!!.setOnClickListener { onToneKeyClick() }
+        scrim!!.setOnClickListener { closeOverlay() }
+        promptBack!!.setOnClickListener { onPromptBack() }
+        promptEdit!!.setOnClickListener { onPromptEdit() }
         buttonLanguage!!.setOnClickListener { onLanguageClick() }
         buttonRetry!!.setOnClickListener { onButtonRetryClick() }
         actionInsert!!.setOnClickListener { onActionInsert() }
@@ -427,12 +458,14 @@ class WhisperKeyboard {
         pendingSuffix = ""
         polishNote = PolishNote.OFF
         deleteIndex = -1
+        cardToneId = null
         tab = Tab.Voice
+        closeOverlay(animated = false, rerender = false)
         setState(UiState.Idle)
         // Re-read the toggle and the language on every reset (the service
         // calls reset() when the keyboard window is shown), so a change
         // made in the settings page is picked up without a view rebuild.
-        refreshPolishToggle()
+        refreshTones()
         refreshLanguage()
     }
 
@@ -484,8 +517,10 @@ class WhisperKeyboard {
         polished: String?,
         textWithAttach: String?,
         note: PolishNote,
-        polishError: ErrorDisplay? = null
+        polishError: ErrorDisplay? = null,
+        toneId: String? = null
     ) {
+        cardToneId = toneId
         rawResultText = raw
         polishedResultText = polished?.takeIf { it.isNotEmpty() }
         polishNote = note
@@ -652,11 +687,13 @@ class WhisperKeyboard {
         val showCard = s == UiState.Pending || s == UiState.Inserted
         val showClip = tab == Tab.Clip && !showCard
 
+        // The tone key is locked in some states: an open menu goes with it.
+        if (overlay != Overlay.None && !toneKeyEnabled(s)) closeOverlay(animated = false, rerender = false)
         renderTopRow(context, s)
 
-        groupMain?.visibility = if (showCard || showClip) View.GONE else View.VISIBLE
-        groupClip?.visibility = if (showClip) View.VISIBLE else View.GONE
-        groupResult?.visibility = if (showCard) View.VISIBLE else View.GONE
+        setGroupVisible(groupMain, !(showCard || showClip), appearMs = 150, card = false)
+        setGroupVisible(groupClip, showClip, appearMs = 120, card = false)
+        setGroupVisible(groupResult, showCard, appearMs = 200, card = true)
 
         keyLanguageCol?.visibility = if (s == UiState.Idle) View.VISIBLE else View.GONE
         keySettingsCol?.visibility = if (s == UiState.Idle) View.VISIBLE else View.GONE
@@ -677,7 +714,34 @@ class WhisperKeyboard {
     private fun setKeyEnabled(view: View?, enabled: Boolean) {
         view ?: return
         view.isEnabled = enabled
-        view.alpha = if (enabled) 1f else 0.38f
+        Motion.alphaTo(view, if (enabled) 1f else 0.38f)
+    }
+
+    // The three middle-area groups fade in; the result card also rises 8dp
+    // (200 ms) and fades out in 120 ms (SPEC_r8 §7). With animations off the
+    // visibility just switches.
+    private fun setGroupVisible(view: View?, visible: Boolean, appearMs: Long, card: Boolean) {
+        view ?: return
+        if (visible) {
+            val shown = view.visibility == View.VISIBLE && !hidingGroups.contains(view)
+            if (shown) return
+            hidingGroups.remove(view)
+            if (card) {
+                Motion.appear(view, appearMs, Motion.linearOutSlowIn, slideDp = 8f)
+            } else {
+                Motion.appear(view, appearMs, Motion.fastOutSlowIn)
+            }
+        } else {
+            if (view.visibility != View.VISIBLE || hidingGroups.contains(view)) return
+            if (card) {
+                hidingGroups.add(view)
+                Motion.disappear(view, 120, Motion.fastOutLinearIn) { hidingGroups.remove(view) }
+            } else {
+                view.animate().cancel()
+                view.visibility = View.GONE
+                Motion.reset(view)
+            }
+        }
     }
 
     private fun renderTopRow(context: Context, s: UiState) {
@@ -716,6 +780,13 @@ class WhisperKeyboard {
                 setKeyEnabled(backspace, true)
             }
         }
+        // The prompt viewer covers the keyboard: tabs and backspace wait.
+        if (overlay == Overlay.Viewer) {
+            setKeyEnabled(voice, false)
+            setKeyEnabled(clip, false)
+            setKeyEnabled(backspace, false)
+        }
+        tone?.isSelected = overlay != Overlay.None
         renderStatus()
     }
 
@@ -747,7 +818,8 @@ class WhisperKeyboard {
             now = now
         )
 
-        statusView.text = resolved.text
+        statusView.text =
+            if (overlay == Overlay.Viewer && !resolved.isError) viewerStatus(context) else resolved.text
         // The full reason for an error / polish failure: read by TalkBack and
         // shown by a long press; both go away with the status itself.
         val detail = when (resolved.type) {
@@ -966,7 +1038,7 @@ class WhisperKeyboard {
         textAi?.visibility = if (hasPolished) View.VISIBLE else View.GONE
         if (hasPolished) {
             textAi?.text = tagged(
-                context, "✦ " + context.getString(R.string.kb_tone_pro_short), polished.orEmpty(),
+                context, "✦ " + cardToneName(context), polished.orEmpty(),
                 R.color.kb_tertiary_container, R.color.kb_on_tertiary_container
             )
         }
@@ -1267,6 +1339,7 @@ class WhisperKeyboard {
 
     private fun onButtonSpaceBarClick() {
         clearError()
+        haptic(buttonSpaceBar, HapticFeedbackConstants.KEYBOARD_TAP)
         // Recording -> Start transcribing (with a whitespace included)
         // else -> types a space into the editor (a pending card stays)
         if (state == UiState.Recording) {
@@ -1280,6 +1353,7 @@ class WhisperKeyboard {
 
     private fun onButtonEnterClick() {
         clearError()
+        haptic(buttonEnter, HapticFeedbackConstants.KEYBOARD_TAP)
         when (state) {
             // Recording -> Start transcribing (with a newline included)
             UiState.Recording -> {
@@ -1318,6 +1392,7 @@ class WhisperKeyboard {
     }
 
     private fun onTabVoiceClick() {
+        if (closeOverlayIfOpen()) return
         haptic(tabVoice, HapticFeedbackConstants.KEYBOARD_TAP)
         collapseInserted()
         if (tab != Tab.Voice) {
@@ -1328,6 +1403,7 @@ class WhisperKeyboard {
     }
 
     private fun onTabClipClick() {
+        if (closeOverlayIfOpen()) return
         if (state != UiState.Idle && state != UiState.Inserted) return
         haptic(tabClip, HapticFeedbackConstants.KEYBOARD_TAP)
         collapseInserted()
@@ -1385,7 +1461,7 @@ class WhisperKeyboard {
         repolishing = true
         stagedRaw = raw
         setState(UiState.Processing)
-        onRepolish(raw) { polished, error ->
+        onRepolish(raw, cardToneId) { polished, error ->
             // Ignore a late answer after the user cancelled or left.
             if (state != UiState.Processing || !repolishing) return@onRepolish
             repolishing = false
@@ -1413,62 +1489,296 @@ class WhisperKeyboard {
     // Settings-backed bits: AI tone key and language
     // =====================================================================
 
-    // Interim until the tone menu (round 11b): the key shows 專業 or 關 and a
-    // tap switches AI polishing on / off, like the old AI key did.
+    // =====================================================================
+    // Tone key, tone menu and prompt viewer (SPEC_r8 §10, §11)
+    // =====================================================================
+
+    // Free while recording (the tone is read when the request is sent), idle
+    // and after an insert; locked while processing and while a result waits.
+    private fun toneKeyEnabled(s: UiState = state): Boolean =
+        s == UiState.Idle || s == UiState.Recording || s == UiState.Inserted
+
+    private fun cardToneName(context: Context): String =
+        toneState.byId(cardToneId)?.name ?: toneState.current?.name
+            ?: context.getString(R.string.kb_tone_pro_short)
+
     private fun updateToneKey() {
         val key = buttonTone ?: return
         val context = key.context
-        key.isActivated = polishEnabled
-        val name = context.getString(if (polishEnabled) R.string.kb_tone_pro_short else R.string.kb_tone_off_short)
-        toneLabel?.text = name
-        key.contentDescription = context.getString(R.string.kb_tone_cd, name)
+        val on = toneState.polishOn
+        key.isActivated = on
+        val current = toneState.current
+        val shortName = if (on && current != null) current.short else context.getString(R.string.kb_tone_off_short)
+        val fullName = if (on && current != null) current.name else context.getString(R.string.kb_tone_off_name)
+        toneLabel?.let { label ->
+            if (label.text.toString() != shortName) {
+                // 100 ms cross-fade of the label (SPEC_r8 §7).
+                if (Motion.enabled(context) && key.isShown) {
+                    label.animate().cancel()
+                    label.animate().alpha(0f).setDuration(50).setInterpolator(Motion.linear).withEndAction {
+                        label.text = shortName
+                        label.animate().alpha(1f).setDuration(50).setInterpolator(Motion.linear).start()
+                    }.start()
+                } else {
+                    label.alpha = 1f
+                    label.text = shortName
+                }
+            }
+        }
+        key.contentDescription = context.getString(R.string.kb_tone_cd, fullName)
         ViewCompat.setStateDescription(
             key,
-            context.getString(if (polishEnabled) R.string.kb_state_open else R.string.kb_state_closed)
+            context.getString(if (on) R.string.kb_state_open else R.string.kb_state_closed)
         )
     }
 
-    private fun refreshPolishToggle() {
+    // Re-read the tone list and the current tone (on every show of the keyboard,
+    // so a change made in the settings page is picked up).
+    private fun refreshTones() {
         val context = keyboardView?.context ?: return
         CoroutineScope(Dispatchers.Main).launch {
-            try {
-                polishEnabled = context.dataStore.data.map { preferences ->
-                    preferences[POLISH_ENABLED] ?: true
-                }.first()
-            } catch (_: Exception) {
-                // Reading failure keeps the default (on).
-                polishEnabled = true
-            }
+            toneState = ToneStore.load(context)
             updateToneKey()
+            if (overlay == Overlay.Menu) buildMenu(context)
+            if (overlay == Overlay.Viewer) renderViewer(context)
         }
     }
 
     private fun onToneKeyClick() {
         val context = keyboardView?.context ?: return
+        if (!toneKeyEnabled()) return
         haptic(buttonTone, HapticFeedbackConstants.KEYBOARD_TAP)
-        // Flip and paint immediately, then persist. The new value only
-        // takes effect for the NEXT recording: WhisperTranscriber
-        // snapshots POLISH_ENABLED once, before its STT request.
-        val newValue = !polishEnabled
-        polishEnabled = newValue
-        updateToneKey()
-        showStatus(
-            context.getString(if (newValue) R.string.kb_status_polish_on else R.string.kb_status_polish_off),
-            1500L
+        if (overlay != Overlay.None) closeOverlay() else openMenu(context)
+    }
+
+    private fun openMenu(context: Context) {
+        buildMenu(context)
+        overlay = Overlay.Menu
+        scrim?.let { Motion.appear(it, 150, Motion.fastOutSlowIn) }
+        toneMenu?.let { Motion.appear(it, 150, Motion.fastOutSlowIn, scaleFrom = 0.92f) }
+        render()
+    }
+
+    private fun buildMenu(context: Context) {
+        val list = toneMenuList ?: return
+        list.removeAllViews()
+        list.addView(
+            menuRow(
+                context, TONE_OFF, context.getString(R.string.kb_tone_off_name),
+                context.getString(R.string.kb_tone_off_desc), selected = !toneState.polishOn, withPrompt = false
+            )
         )
+        for (tone in toneState.tones) {
+            list.addView(
+                menuRow(
+                    context, tone.id, tone.name, tone.desc.ifBlank { context.getString(R.string.set_tone_new_desc) },
+                    selected = toneState.polishOn && toneState.currentId == tone.id, withPrompt = true
+                )
+            )
+        }
+        // 144dp for "off" plus two tones; at most four rows show, the rest scrolls.
+        val rows = minOf(1 + toneState.tones.size, 4)
+        toneMenu?.let {
+            val lp = it.layoutParams
+            lp.height = ((rows * 44 + 12) * context.resources.displayMetrics.density).toInt()
+            it.layoutParams = lp
+        }
+    }
+
+    private fun menuRow(
+        context: Context, id: String, name: String, desc: String, selected: Boolean, withPrompt: Boolean
+    ): View {
+        val density = context.resources.displayMetrics.density
+        val scale = historyScale(context)
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, (44 * density).toInt()
+            )
+            setBackgroundResource(if (selected) R.drawable.kb_bg_menu_row_selected else R.drawable.kb_bg_menu_row)
+            isClickable = true
+            isFocusable = true
+            contentDescription = name + "，" + desc
+            setOnClickListener { selectTone(id) }
+        }
+        row.addView(ImageView(context).apply {
+            setImageResource(R.drawable.kb_ic_check)
+            imageTintList = tint(context, R.color.kb_primary)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            visibility = if (selected) View.VISIBLE else View.INVISIBLE
+            layoutParams = LinearLayout.LayoutParams((20 * density).toInt(), (20 * density).toInt())
+                .apply { marginStart = (12 * density).toInt() }
+        })
+        row.addView(TextView(context).apply {
+            text = name
+            setTextColor(color(context, R.color.kb_on_surface))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f * scale)
+            setTypeface(null, if (selected) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+            maxLines = 1
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = (12 * density).toInt() }
+        })
+        row.addView(TextView(context).apply {
+            text = desc
+            setTextColor(color(context, R.color.kb_on_surface_variant))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f * scale)
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = (8 * density).toInt()
+                // The "off" row has no prompt key and keeps no room for one.
+                marginEnd = if (withPrompt) 0 else (12 * density).toInt()
+            }
+        })
+        if (withPrompt) {
+            // 44 x 44 touch box at x 356–400; the icon is 20dp.
+            row.addView(ImageButton(context).apply {
+                setImageResource(R.drawable.kb_ic_description)
+                imageTintList = tint(context, R.color.kb_on_surface_variant)
+                background = null
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                setPadding((12 * density).toInt(), (12 * density).toInt(), (12 * density).toInt(), (12 * density).toInt())
+                contentDescription = context.getString(R.string.kb_tone_view_prompt_cd, name)
+                layoutParams = LinearLayout.LayoutParams((44 * density).toInt(), (44 * density).toInt())
+                setOnClickListener {
+                    haptic(it, HapticFeedbackConstants.KEYBOARD_TAP)
+                    openViewer(id)
+                }
+            })
+        }
+        return row
+    }
+
+    private fun selectTone(id: String) {
+        val context = keyboardView?.context ?: return
+        toneState = toneState.copy(currentId = id)
+        updateToneKey()
+        haptic(buttonTone, HapticFeedbackConstants.CLOCK_TICK)
+        closeOverlay()
+        val message = if (id == TONE_OFF) {
+            context.getString(R.string.kb_status_polish_off)
+        } else {
+            context.getString(R.string.kb_tone_switched, toneState.current?.name.orEmpty())
+        }
+        showStatus(message, 1500L)
         CoroutineScope(Dispatchers.Main).launch {
             try {
-                context.dataStore.edit { settings ->
-                    settings[POLISH_ENABLED] = newValue
-                }
+                ToneStore.select(context, id)
             } catch (_: Exception) {
-                // Persist failure: revert the paint so the key never
-                // claims a state that was not saved.
-                polishEnabled = !newValue
-                updateToneKey()
+                // Persist failure: the next reset() re-reads the saved tone.
             }
         }
     }
+
+    // ---- prompt viewer ----
+
+    private fun openViewer(toneId: String) {
+        val context = keyboardView?.context ?: return
+        viewerToneId = toneId
+        overlay = Overlay.Viewer
+        renderViewer(context)
+        toneMenu?.let { it.animate().cancel(); it.visibility = View.GONE; Motion.reset(it) }
+        promptSheet?.let { Motion.appear(it, 220, Motion.fastOutSlowIn, slideDp = 16f) }
+        render()
+    }
+
+    private fun renderViewer(context: Context) {
+        val chips = promptChips ?: return
+        val density = context.resources.displayMetrics.density
+        val scale = historyScale(context)
+        chips.removeAllViews()
+        for (tone in toneState.tones) {
+            val selected = tone.id == viewerToneId
+            chips.addView(TextView(context).apply {
+                text = if (selected) "✓ " + tone.name else tone.name
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f * scale)
+                setTypeface(null, if (selected) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+                setTextColor(color(context, if (selected) R.color.kb_on_tertiary_container else R.color.kb_on_surface))
+                setBackgroundResource(if (selected) R.drawable.kb_bg_chip_selected else R.drawable.kb_bg_chip_outline)
+                gravity = Gravity.CENTER
+                maxLines = 1
+                setPadding((12 * density).toInt(), 0, (12 * density).toInt(), 0)
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, (28 * density).toInt()
+                ).apply { marginEnd = (8 * density).toInt() }
+                isClickable = true
+                isFocusable = true
+                // Looking at another tone's text never changes the tone in use.
+                setOnClickListener {
+                    haptic(it, HapticFeedbackConstants.KEYBOARD_TAP)
+                    viewerToneId = tone.id
+                    renderViewer(context)
+                }
+            })
+        }
+        promptText?.text = toneState.byId(viewerToneId)?.prompt.orEmpty()
+        promptScroll?.scrollTo(0, 0)
+        renderStatus()
+    }
+
+    private fun viewerStatus(context: Context): String {
+        val tone = toneState.byId(viewerToneId)
+        return context.getString(R.string.kb_prompt_status, tone?.name.orEmpty(), tone?.prompt?.length ?: 0)
+    }
+
+    private fun onPromptBack() {
+        if (overlay != Overlay.Viewer) return
+        val context = keyboardView?.context ?: return
+        haptic(promptBack, HapticFeedbackConstants.KEYBOARD_TAP)
+        overlay = Overlay.Menu
+        promptSheet?.let { Motion.disappear(it, 150, Motion.fastOutSlowIn, slideDp = 16f) }
+        buildMenu(context)
+        toneMenu?.let { Motion.appear(it, 150, Motion.fastOutSlowIn, scaleFrom = 0.92f) }
+        render()
+    }
+
+    private fun onPromptEdit() {
+        val id = viewerToneId ?: return
+        haptic(promptEdit, HapticFeedbackConstants.KEYBOARD_TAP)
+        closeOverlay()
+        onOpenToneEditor(id)
+    }
+
+    // ---- overlay plumbing ----
+
+    private fun closeOverlay(animated: Boolean = true, rerender: Boolean = true) {
+        if (overlay == Overlay.None) return
+        val wasViewer = overlay == Overlay.Viewer
+        overlay = Overlay.None
+        viewerToneId = null
+        val scrimView = scrim
+        val menuView = toneMenu
+        val sheetView = promptSheet
+        if (animated) {
+            scrimView?.let { Motion.disappear(it, 100, Motion.fastOutSlowIn) }
+            if (wasViewer) {
+                sheetView?.let { Motion.disappear(it, 150, Motion.fastOutSlowIn, slideDp = 16f) }
+            } else {
+                menuView?.let { Motion.disappear(it, 100, Motion.fastOutSlowIn) }
+            }
+        } else {
+            for (v in listOfNotNull(scrimView, menuView, sheetView)) {
+                v.animate().cancel()
+                v.visibility = View.GONE
+                Motion.reset(v)
+            }
+        }
+        if (rerender) render()
+    }
+
+    /** True when an overlay was open and has been closed (the tap does nothing else). */
+    private fun closeOverlayIfOpen(): Boolean {
+        if (overlay == Overlay.None) return false
+        closeOverlay()
+        return true
+    }
+
+    /** The system back key: closes an open overlay. Returns whether it did. */
+    fun handleBack(): Boolean = closeOverlayIfOpen()
 
     private fun languageLabel(context: Context, code: String): String = when (code) {
         LANGUAGE_AUTO -> context.getString(R.string.kb_lang_auto)

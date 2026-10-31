@@ -24,6 +24,7 @@ import android.util.AttributeSet
 import android.os.SystemClock
 import android.util.Log
 import android.view.GestureDetector
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import androidx.appcompat.widget.AppCompatImageButton
 import kotlinx.coroutines.CoroutineScope
@@ -52,6 +53,7 @@ class BackspaceButton(context: Context, attrs: AttributeSet) :
             }
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
+                    performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                     performClick()
                     startLongPressDetector()
                 }
@@ -97,6 +99,8 @@ class BackspaceButton(context: Context, attrs: AttributeSet) :
             //   quick backspace. Any ACTION_UP will terminate either
             //   the waiting or quick backspacing.
             delay(DELAY_BEFORE_QUICK_BACKSPACE)
+            // One long-press tick when the quick delete starts, none for each step.
+            performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
             while (this.isActive) {
                 if (SystemClock.uptimeMillis() - pressedAt >= WORD_BACKSPACE_AFTER) {
                     wordBackspaceCallback()

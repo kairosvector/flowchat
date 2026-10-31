@@ -71,7 +71,8 @@ class WhisperTranscriber {
         val llmEndpoint: String,
         val llmModel: String,
         val llmApiKey: String,
-        val llmPrompt: String
+        val llmPrompt: String,
+        val toneId: String?
     )
 
     /**
@@ -85,7 +86,8 @@ class WhisperTranscriber {
         val rawCore: String,
         val polishedCore: String?,
         val polishNote: PolishNote,
-        val polishError: ErrorText?
+        val polishError: ErrorText?,
+        val toneId: String?
     )
 
     private val TAG = "WhisperTranscriber"
@@ -96,13 +98,15 @@ class WhisperTranscriber {
         filename: String,
         mediaType: String,
         attachToEnd: String,
-        callback: (text: String?, raw: String?, polished: String?, note: PolishNote, polishError: ErrorDisplay?) -> Unit,
+        callback: (text: String?, raw: String?, polished: String?, note: PolishNote, polishError: ErrorDisplay?, toneId: String?) -> Unit,
         exceptionCallback: (ErrorDisplay) -> Unit,
         stageCallback: ((PolishStage, String?) -> Unit)? = null
     ) {
         suspend fun makeWhisperRequest(): Outcome {
             // Retrieve configs
-            val (endpoint, languageCode, speechToTextBackend, apiKey, model, postprocessing, addTrailingSpace, polishEnabled, llmEndpoint, llmModel, llmApiKey, llmPrompt) = context.dataStore.data.map { preferences: Preferences ->
+            val (endpoint, languageCode, speechToTextBackend, apiKey, model, postprocessing, addTrailingSpace, polishEnabled, llmEndpoint, llmModel, llmApiKey, llmPrompt, toneId) = context.dataStore.data.map { preferences: Preferences ->
+                // Round 11b: the current tone decides whether and how to polish.
+                val tones = ToneStore.resolve(preferences)
                 Config(
                     // Fork2: read fallbacks are Groq + Whisper, so a
                     // fresh install that never opened settings still
@@ -115,11 +119,12 @@ class WhisperTranscriber {
                     preferences[MODEL] ?: DEFAULT_STT_MODEL,
                     preferences[POSTPROCESSING] ?: context.getString(R.string.settings_option_no_conversion),
                     preferences[ADD_TRAILING_SPACE] ?: false,
-                    preferences[POLISH_ENABLED] ?: true,
+                    tones.polishOn,
                     preferences[LLM_ENDPOINT] ?: DEFAULT_LLM_ENDPOINT,
                     preferences[LLM_MODEL] ?: DEFAULT_LLM_MODEL,
                     preferences[LLM_API_KEY] ?: "",
-                    preferences[LLM_PROMPT] ?: DEFAULT_POLISH_PROMPT
+                    (tones.current ?: tones.tones.first()).prompt,
+                    tones.current?.id
                 )
             }.first()
 
@@ -216,7 +221,7 @@ class WhisperTranscriber {
                 // Only used for space key and enter key.
                 finalCore + attachToEnd
             }
-            return Outcome(textWithAttach, trimmedCore, polishedCore, polishNote, polishError)
+            return Outcome(textWithAttach, trimmedCore, polishedCore, polishNote, polishError, toneId)
         }
 
         // Create a cancellable job in the main thread (for UI updating)
@@ -257,7 +262,8 @@ class WhisperTranscriber {
                 outcome?.rawCore,
                 outcome?.polishedCore,
                 outcome?.polishNote ?: PolishNote.OFF,
-                outcome?.polishError?.display(context)
+                outcome?.polishError?.display(context),
+                outcome?.toneId
             )
 
             // A short sentence for the status bar. The exception message
@@ -288,14 +294,22 @@ class WhisperTranscriber {
      * polishing failed or was cancelled; on failure the second argument
      * is what to show ("潤飾失敗：…" and its full reason). On success the last record is
      * updated, so the keyboard and the history keep agreeing.
-     * Cancel with [stop], like a normal transcription.
+     * Cancel with [stop], like a normal transcription. [toneId] is the tone of
+     * the result card (SPEC_r8: re-polish keeps the card's tone); an unknown
+     * id falls back to the current tone.
      */
-    fun polishAsync(context: Context, rawText: String, callback: (String?, ErrorDisplay?) -> Unit) {
+    fun polishAsync(
+        context: Context,
+        rawText: String,
+        toneId: String?,
+        callback: (String?, ErrorDisplay?) -> Unit
+    ) {
         val job = CoroutineScope(Dispatchers.Main).launch {
             val (polished, error) = withContext(Dispatchers.IO) {
                 try {
                     val prefs = context.dataStore.data.first()
                     val sttKey = prefs[API_KEY] ?: ""
+                    val tones = ToneStore.resolve(prefs)
                     val result = PolishClient.polishDetailed(
                         rawText,
                         PolishConfig(
@@ -303,7 +317,7 @@ class WhisperTranscriber {
                             endpoint = prefs[LLM_ENDPOINT] ?: DEFAULT_LLM_ENDPOINT,
                             model = prefs[LLM_MODEL] ?: DEFAULT_LLM_MODEL,
                             apiKey = (prefs[LLM_API_KEY] ?: "").ifBlank { sttKey },
-                            prompt = prefs[LLM_PROMPT] ?: DEFAULT_POLISH_PROMPT
+                            prompt = (tones.byId(toneId) ?: tones.current ?: tones.tones.first()).prompt
                         )
                     )
                     when (result) {

@@ -98,7 +98,7 @@ const val DEFAULT_STT_LANGUAGE = "auto"
  * Prompt version stored in SharedPreferences (see PolishPromptMigration).
  * Bump this together with DEFAULT_POLISH_PROMPT when the default changes.
  */
-const val POLISH_PROMPT_VERSION = 3
+const val POLISH_PROMPT_VERSION = 4
 
 /**
  * Default polish prompt (fork6). The user's text is sent wrapped in

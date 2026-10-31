@@ -66,14 +66,15 @@ class WhisperInputService : InputMethodService() {
     private var isFirstTime: Boolean = true
 
     private fun transcriptionCallback(
-        text: String?, raw: String?, polished: String?, note: PolishNote, polishError: ErrorDisplay?
+        text: String?, raw: String?, polished: String?, note: PolishNote, polishError: ErrorDisplay?,
+        toneId: String?
     ) {
         if (!text.isNullOrEmpty()) {
             if (note == PolishNote.OK || note == PolishNote.FAILED) {
                 // Polishing ran (it worked or it failed): the result card
                 // waits for "insert" (SPEC_r8 RESULT_PENDING), nothing is
                 // typed into the editor yet.
-                whisperKeyboard.showResult(raw ?: text.trim(), polished, text, note, polishError)
+                whisperKeyboard.showResult(raw ?: text.trim(), polished, text, note, polishError, toneId)
             } else {
                 // AI off or a short sentence: no card, the text goes straight in.
                 currentInputConnection?.commitText(text, 1)
@@ -206,7 +207,8 @@ class WhisperInputService : InputMethodService() {
             { text -> onInsertText(text) },
             { text, submit -> onInsertResult(text, submit) },
             { inserted -> onUndoInsert(inserted) },
-            { raw, done -> whisperTranscriber.polishAsync(this, raw, done) },
+            { raw, toneId, done -> whisperTranscriber.polishAsync(this, raw, toneId, done) },
+            { toneId -> onOpenToneEditor(toneId) },
         )
         applyNavigationBarStyle()
         return keyboardView
@@ -297,8 +299,8 @@ class WhisperInputService : InputMethodService() {
             recordedAudioFilename,
             audioMediaType,
             attachToEnd,
-            { text, raw, polished, note, polishError ->
-                transcriptionCallback(text, raw, polished, note, polishError)
+            { text, raw, polished, note, polishError, toneId ->
+                transcriptionCallback(text, raw, polished, note, polishError, toneId)
             },
             { transcriptionExceptionCallback(it) },
             { stage, text -> onPolishStage(stage, text) })
@@ -421,6 +423,14 @@ class WhisperInputService : InputMethodService() {
         launchMainActivity()
     }
 
+    // "編輯" in the prompt viewer: straight to that tone's edit screen.
+    private fun onOpenToneEditor(toneId: String) {
+        val intent = Intent(this, ToneEditActivity::class.java)
+        intent.putExtra(ToneEditActivity.EXTRA_TONE_ID, toneId)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startActivity(intent)
+    }
+
     private fun onEnter() {
         val inputConnection = currentInputConnection ?: return
         inputConnection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
@@ -470,6 +480,12 @@ class WhisperInputService : InputMethodService() {
     // guessing. This does not force the keyboard open when the user
     // deliberately hid it: hiding goes through hideWindow, not
     // through this decision.
+    // The system back key first closes an open tone menu / prompt viewer.
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_BACK && whisperKeyboard.handleBack()) return true
+        return super.onKeyDown(keyCode, event)
+    }
+
     override fun onEvaluateInputViewShown(): Boolean {
         val info = currentInputEditorInfo
             ?: return super.onEvaluateInputViewShown()

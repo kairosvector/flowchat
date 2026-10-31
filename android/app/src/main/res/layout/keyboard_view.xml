@@ -715,4 +715,152 @@
             app:tint="@color/kb_on_primary_container" />
     </LinearLayout>
 </LinearLayout>
+
+    <!-- Overlays (SPEC_r8 §2.5): drawn over the middle and bottom rows; the top
+         row stays visible. Not a PopupWindow: an IME window has no usable token. -->
+    <View
+        android:id="@+id/scrim"
+        android:layout_width="match_parent"
+        android:layout_height="224dp"
+        android:layout_marginTop="56dp"
+        android:background="@color/kb_scrim"
+        android:clickable="true"
+        android:focusable="false"
+        android:importantForAccessibility="no"
+        android:visibility="gone" />
+
+    <!-- Tone menu: 208dp wide, right edge on x = 404, rows of 44dp added by code. -->
+    <ScrollView
+        android:id="@+id/tone_menu"
+        android:layout_width="208dp"
+        android:layout_height="144dp"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="58dp"
+        android:layout_marginEnd="8dp"
+        android:background="@drawable/kb_bg_tone_menu"
+        android:clipToOutline="true"
+        android:elevation="6dp"
+        android:overScrollMode="ifContentScrolls"
+        android:scrollbars="none"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:id="@+id/tone_menu_list"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp" />
+    </ScrollView>
+
+    <!-- Prompt viewer: 396 x 214 card at (8, 58). -->
+    <LinearLayout
+        android:id="@+id/prompt_sheet"
+        android:layout_width="match_parent"
+        android:layout_height="214dp"
+        android:layout_marginStart="8dp"
+        android:layout_marginTop="58dp"
+        android:layout_marginEnd="8dp"
+        android:background="@drawable/kb_bg_card"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="4dp"
+            android:paddingEnd="8dp">
+
+            <ImageButton
+                android:id="@+id/prompt_back"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/kb_prompt_back"
+                android:padding="8dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/kb_ic_arrow_back"
+                app:tint="@color/kb_on_surface" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:accessibilityHeading="true"
+                android:singleLine="true"
+                android:text="@string/kb_prompt_title"
+                android:textColor="@color/kb_on_surface"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:id="@+id/prompt_edit"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:background="?android:attr/selectableItemBackground"
+                android:clickable="true"
+                android:contentDescription="@string/kb_prompt_edit"
+                android:focusable="true"
+                android:gravity="center"
+                android:orientation="horizontal"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp">
+
+                <ImageView
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/kb_ic_edit"
+                    app:tint="@color/kb_primary" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:text="@string/kb_prompt_edit"
+                    android:textColor="@color/kb_primary"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="34dp"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:id="@+id/prompt_chips"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp" />
+        </HorizontalScrollView>
+
+        <ScrollView
+            android:id="@+id/prompt_scroll"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:overScrollMode="ifContentScrolls"
+            android:scrollbars="vertical">
+
+            <TextView
+                android:id="@+id/prompt_text"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingStart="12dp"
+                android:paddingTop="4dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="8dp"
+                android:textColor="@color/kb_on_surface"
+                android:textIsSelectable="true"
+                android:textSize="12sp" />
+        </ScrollView>
+    </LinearLayout>
 </FrameLayout>

@@ -21,4 +21,6 @@
     <color name="kb_on_tertiary">#381E72</color>
     <color name="kb_inverse_primary">#3B5BDB</color>
     <color name="kb_ripple">#33FFFFFF</color>
+    <color name="kb_scrim">#80000000</color>
+    <color name="kb_selected_row">#29B4C5FF</color>
 </resources>

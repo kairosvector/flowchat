@@ -36,7 +36,6 @@ import android.text.Spannable
 import android.text.SpannableStringBuilder
 import android.text.TextWatcher
 import android.text.style.StyleSpan
-import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -48,6 +47,9 @@ import android.widget.Filter
 import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.recyclerview.widget.ItemTouchHelper
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import androidx.annotation.StringRes
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
@@ -108,6 +110,12 @@ val LLM_ENDPOINT = stringPreferencesKey("llm-endpoint")
 val LLM_MODEL = stringPreferencesKey("llm-model")
 val LLM_API_KEY = stringPreferencesKey("llm-api-key")
 val LLM_PROMPT = stringPreferencesKey("llm-prompt")
+// Round 11b: the AI tones (SPEC_r8 §15). tones-json is the ordered list,
+// polish-tone the current tone id or "off". polish-enabled stays and is
+// kept equal to (polish-tone != "off"). llm-prompt is only read once, by
+// the migration.
+val TONES_JSON = stringPreferencesKey("tones-json")
+val POLISH_TONE = stringPreferencesKey("polish-tone")
 
 /**
  * Fork6 round 6: the redesigned settings page. Every field saves itself
@@ -146,7 +154,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var cardStt: ViewGroup
     private lateinit var cardAi: ViewGroup
     private lateinit var toggleGroup: MaterialButtonToggleGroup
-    private lateinit var btnPromptReset: MaterialButton
+    private lateinit var toneList: RecyclerView
+    private lateinit var btnToneAdd: MaterialButton
+    private lateinit var textToneLimit: TextView
+    private lateinit var toneAdapter: ToneListAdapter
+    private lateinit var toneTouchHelper: ItemTouchHelper
     private lateinit var switchAi: MaterialSwitch
 
     private lateinit var fieldEndpoint: TextSetting
@@ -156,7 +168,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var fieldLlmEndpoint: TextSetting
     private lateinit var fieldLlmModel: TextSetting
     private lateinit var fieldLlmKey: TextSetting
-    private lateinit var fieldPrompt: TextSetting
     private val allFields = mutableListOf<TextSetting>()
     private val skippedFields = linkedSetOf<String>()
 
@@ -195,6 +206,8 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         refreshStatus()
+        // Back from the tone editor: show the new list.
+        if (settingsLoaded) reloadTones()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -246,7 +259,9 @@ class MainActivity : AppCompatActivity() {
         cardStt = findViewById(R.id.card_stt)
         cardAi = findViewById(R.id.card_ai)
         toggleGroup = findViewById(R.id.toggle_postprocessing)
-        btnPromptReset = findViewById(R.id.btn_prompt_reset)
+        toneList = findViewById(R.id.tone_list)
+        btnToneAdd = findViewById(R.id.btn_tone_add)
+        textToneLimit = findViewById(R.id.text_tone_limit)
         switchAi = findViewById<View>(R.id.row_ai_enable).findViewById(R.id.row_switch)
     }
 
@@ -358,7 +373,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadSettings() {
         lifecycleScope.launch {
-            // Move an untouched older default prompt to the current default
+            // Move the old single prompt / switch into the tone list
             // before the page reads it (runs once).
             PolishPromptMigration.runIfNeeded(this@MainActivity)
             val prefs = dataStore.data.first()
@@ -371,15 +386,13 @@ class MainActivity : AppCompatActivity() {
             setupLanguageDropdown()
             setupSwitches(prefs)
             setupPostprocessing(prefs)
-            setupPromptReset()
+            setupTones()
             setupTestButtons()
 
             applyBackendLayout()
             applyAiVisibility()
-            updatePromptHelper()
             updateHostHelper()
             updateTestButtons()
-            btnPromptReset.isEnabled = true
             settingsLoaded = true
         }
     }
@@ -430,7 +443,6 @@ class MainActivity : AppCompatActivity() {
                     if (suppress || !settingsLoaded) return
                     if (liveCheck) showError(validate(transform(s?.toString().orEmpty())))
                     onFieldEdited(card())
-                    if (key == LLM_PROMPT) updatePromptHelper()
                     if (key == ENDPOINT) updateHostHelper()
                 }
             })
@@ -542,13 +554,6 @@ class MainActivity : AppCompatActivity() {
             tilOf(R.id.til_llm_key), findViewById(R.id.edit_llm_key), LLM_API_KEY, R.string.st_ai_key,
             card = { R.id.card_ai }, isActive = { polishEnabled }, transform = { it.trim() }
         )
-        fieldPrompt = TextSetting(
-            tilOf(R.id.til_llm_prompt), findViewById(R.id.edit_llm_prompt), LLM_PROMPT, R.string.st_ai_prompt,
-            card = { R.id.card_ai }, isActive = { polishEnabled },
-            validate = { if (it.isBlank()) R.string.st_err_prompt else null },
-            blocking = false,
-            afterSave = { PolishPromptMigration.markCurrent(this@MainActivity) }
-        )
 
         // Initial values: saved ones, or the same defaults the old page showed.
         val endpointDefault = SettingsOptions.defaultEndpoint(backend)
@@ -559,12 +564,11 @@ class MainActivity : AppCompatActivity() {
         fieldLlmEndpoint.bind(prefs[LLM_ENDPOINT] ?: DEFAULT_LLM_ENDPOINT)
         fieldLlmModel.bind(prefs[LLM_MODEL] ?: DEFAULT_LLM_MODEL)
         fieldLlmKey.bind(prefs[LLM_API_KEY].orEmpty())
-        fieldPrompt.bind(prefs[LLM_PROMPT] ?: DEFAULT_POLISH_PROMPT)
         // "saved" for the language field is the language itself.
         fieldLanguageCustom.saved = language
         allFields += listOf(
             fieldEndpoint, fieldApiKey, fieldModel, fieldLanguageCustom,
-            fieldLlmEndpoint, fieldLlmModel, fieldLlmKey, fieldPrompt
+            fieldLlmEndpoint, fieldLlmModel, fieldLlmKey
         )
 
         // API keys: only the last 4 characters are visible until the eye is pressed.
@@ -585,14 +589,6 @@ class MainActivity : AppCompatActivity() {
                 onFieldEdited(R.id.card_ai)
                 showSaved()
             }
-        }
-        // The prompt field scrolls inside itself; keep the page from stealing the touch.
-        fieldPrompt.edit.setOnTouchListener { v, event ->
-            if (v.canScrollVertically(-1) || v.canScrollVertically(1)) {
-                v.parent.requestDisallowInterceptTouchEvent(true)
-            }
-            if (event.actionMasked == MotionEvent.ACTION_UP) v.performClick()
-            false
         }
     }
 
@@ -797,6 +793,7 @@ class MainActivity : AppCompatActivity() {
         bind(R.id.row_trailing_space, ADD_TRAILING_SPACE, false)
         bind(R.id.row_ai_enable, POLISH_ENABLED, true) { checked ->
             polishEnabled = checked
+            syncToneWithSwitch(checked)
             TransitionManager.beginDelayedTransition(cardAi)
             applyAiVisibility()
             updateTestButtons()
@@ -828,30 +825,51 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // ---- prompt ------------------------------------------------------------------
+    // ---- tones -------------------------------------------------------------------
 
-    private fun updatePromptHelper() {
-        val modified = fieldPrompt.edit.text.toString() != DEFAULT_POLISH_PROMPT
-        fieldPrompt.til.helperText = if (modified) getString(R.string.st_ai_prompt_modified) else " "
+    private fun setupTones() {
+        toneAdapter = ToneListAdapter(
+            onClick = { tone ->
+                startActivity(
+                    Intent(this, ToneEditActivity::class.java).putExtra(ToneEditActivity.EXTRA_TONE_ID, tone.id)
+                )
+            },
+            onOrderChanged = { list ->
+                if (!settingsLoaded) return@ToneListAdapter
+                lifecycleScope.launch { ToneStore.saveTones(this@MainActivity, list) }
+            },
+            startDrag = { holder -> toneTouchHelper.startDrag(holder) }
+        )
+        toneList.layoutManager = LinearLayoutManager(this)
+        toneList.adapter = toneAdapter
+        toneTouchHelper = ItemTouchHelper(toneAdapter.touchCallback()).also { it.attachToRecyclerView(toneList) }
+        btnToneAdd.setOnClickListener {
+            startActivity(Intent(this, ToneEditActivity::class.java).putExtra(ToneEditActivity.EXTRA_NEW, true))
+        }
+        reloadTones()
     }
 
-    private fun setupPromptReset() {
-        btnPromptReset.isEnabled = false
-        btnPromptReset.setOnClickListener {
-            if (!settingsLoaded) return@setOnClickListener
-            MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.st_ai_prompt_reset_title)
-                .setMessage(R.string.st_ai_prompt_reset_message)
-                .setNegativeButton(R.string.st_cancel, null)
-                .setPositiveButton(R.string.st_reset) { _, _ ->
-                    lifecycleScope.launch {
-                        fieldPrompt.setAndSave(DEFAULT_POLISH_PROMPT)
-                        PolishPromptMigration.markCurrent(this@MainActivity)
-                        updatePromptHelper()
-                        showSaved()
-                    }
-                }
-                .show()
+    private fun reloadTones() {
+        lifecycleScope.launch {
+            val state = ToneStore.load(this@MainActivity)
+            toneAdapter.submit(state.tones, if (state.polishOn) state.currentId else null)
+            val canAdd = ToneRules.canAdd(state.tones.size)
+            btnToneAdd.isEnabled = canAdd
+            textToneLimit.visibility = if (canAdd) View.GONE else View.VISIBLE
+        }
+    }
+
+    // The switch above the list: on = the first tone (or the one in use), off = no polishing.
+    private fun syncToneWithSwitch(checked: Boolean) {
+        lifecycleScope.launch {
+            val state = ToneStore.load(this@MainActivity)
+            val target = when {
+                !checked -> TONE_OFF
+                state.polishOn -> state.currentId
+                else -> state.tones.first().id
+            }
+            ToneStore.select(this@MainActivity, target)
+            reloadTones()
         }
     }
 
