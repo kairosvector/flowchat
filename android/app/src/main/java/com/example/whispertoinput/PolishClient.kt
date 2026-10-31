@@ -150,11 +150,31 @@ object PolishClient {
         }
     }
 
-    private val ORIGINAL_TAG_REGEX = Regex("\\s*</?原文>\\s*")
+    private const val OPEN_TAG = "<原文>"
+    private const val CLOSE_TAG = "</原文>"
 
-    /** Removes any leftover <原文> / </原文> tag, with the whitespace around it. */
-    private fun stripOriginalTags(text: String): String =
-        ORIGINAL_TAG_REGEX.replace(text, "").trim()
+    /**
+     * Removes <原文> / </原文> tags (and the whitespace next to them) from
+     * the START and END of the text only. A tag in the middle, or the
+     * whitespace around it, is part of the text and stays untouched.
+     */
+    private fun stripOriginalTags(text: String): String {
+        var t = text.trim()
+        while (true) {
+            val before = t
+            t = when {
+                t.startsWith(OPEN_TAG) -> t.removePrefix(OPEN_TAG).trimStart()
+                t.startsWith(CLOSE_TAG) -> t.removePrefix(CLOSE_TAG).trimStart()
+                else -> t
+            }
+            t = when {
+                t.endsWith(CLOSE_TAG) -> t.removeSuffix(CLOSE_TAG).trimEnd()
+                t.endsWith(OPEN_TAG) -> t.removeSuffix(OPEN_TAG).trimEnd()
+                else -> t
+            }
+            if (t == before) return t
+        }
+    }
 
     /**
      * Strips leftover <原文> / </原文> tags, a surrounding markdown fence
