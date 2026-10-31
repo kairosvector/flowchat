@@ -2,6 +2,45 @@
 
 原專案：j3soon/whisper-to-input（GPL-3.0，作者 Yan-Bin Diau、Johnson Sun 等，見原 LICENSE 與 README）。
 
+## 2026-10-31 fork6 第七輪：鍵盤主畫面新版面（版本仍是 0.4-fork6，versionCode 16）
+
+依據 .agent/design/layout_r7/SPEC_layout.md 與 handoff ROUND 7 TASK 重構鍵盤主畫面版面，維持固定 280dp 面板高度。簽章設定維持本機 debug keystore，versionName 維持 0.4-fork6。
+
+### 1. 頂列全新五欄佈局（移除舊預覽長 chip 與 AI pill）
+- 頂列四顆同尺寸圖示鍵：
+  - 「上次」（`btn_last`）：最左側（中心 x=32dp, y=30dp），圖示為貼上/剪貼簿，點擊直接貼上上一筆轉寫紀錄，無紀錄時 disabled 並半透明淡化（alpha=0.38）。
+  - 「AI 潤飾開關」（`btn_polish_toggle`）：第二欄（中心 x=80dp, y=30dp），改為獨立正方形圖示鍵（48x48dp 觸控，40x40dp 可視，圓角 12dp），以 Material StateList 驅動：啟用時為 tertiaryContainer 紫色實心背景與填滿星芒圖示，關閉時為 outline 圖示；無障礙狀態描述為「已開啟」/「已關閉」；點擊切換時於狀態區顯示短暫提示「AI 潤飾已開啟」/「AI 潤飾已關閉」（1.5s）。
+  - 「狀態文字區」（`status_text`）：中央（0dp, layout_weight=1, 寬度 204dp, 中心 x=206dp），單行文字水平垂直居中，多餘字元以省略號截斷。全面接管錄音計時、處理狀態、短暫提示與錯誤提示。
+  - 「設定」（`btn_settings`）：第四欄（中心 x=332dp, y=30dp），齒輪圖示，錄音與處理中自動禁用。
+  - 「退格」（`btn_backspace`）：最右側（中心 x=380dp, y=30dp），移至頂列最右端，移除「長按」副標籤純顯示刪除圖示，保留按住連刪邏輯（禁用或 detach 時自動安全取消連刪）。
+- 四顆按鍵統一視覺規範：48x48dp 觸控範圍、40x40dp 可視背景、12dp 圓角、`@drawable/kb_bg_top_key`。
+
+### 2. 中間排左右對稱佈局
+- 中間排高度 144dp，中央為 96dp 實心主要麥克風鍵（中心 x=206dp, y=122dp）。
+- 兩側槽位（`left_slot` 與 `right_slot`）改為左右對稱佈局：
+  - 語言鍵（`btn_language`）：中心 x=44dp, y=122dp，與麥克風中心共線（水平 y=122dp），下方 4dp 帶 11sp 語言標籤（自動 / 繁體中文 / 英文）。
+  - 歷史紀錄鍵（`btn_history`）：中心 x=368dp, y=122dp，與麥克風中心共線，下方 4dp 帶 11sp 標籤。
+  - 對齊精確度在實機/模擬器量測誤差 ≤ 0.4dp（完全落在 SPEC 容許誤差 ±1dp 內）。
+
+### 3. 底排三鍵對稱佈局
+- 佈局結構：切換鍵盤（72dp, 中心 44dp）｜空白鍵（0dp weight 1, 寬度 240dp, 中心永遠鎖定 206dp）｜Enter（72dp, 中心 368dp）。
+- 空白鍵寬度由 weight 1 自動填滿，確保無論左右按鍵狀態如何，空白鍵永遠置中（中心 x=206dp）。
+
+### 4. 狀態文字優先權解析器（StatusResolver）
+- 新增純邏輯優先權解析類別 `StatusResolver`（含完整單元測試）：
+  - 優先權順序：`Error > Recording Timer > Processing Step > Transient Prompt > Default (Hint)`。
+  - 錄音計時支援 `fontFeatureSettings = "tnum"` 等寬數字與粗體，錄音中與錯誤狀態呈現 `@color/kb_recording`（珊瑚紅）。
+  - 原本彈出的 Toast 大部分收斂至狀態列（「AI 潤飾已開啟/關閉」、「已貼上上次結果」、「無上次轉寫文字」、「請先輸入 API Key」、「轉寫失敗：...」等）；跨視窗之系統 Toast（如複製至剪貼簿成功）予以保留。
+
+### 5. 字級上限防破版與無障礙
+- 依據 SPEC 規範：頂列狀態文字、中間排語言/歷史標籤、底排按鍵標籤字級縮放上限皆限制於 1.15x；結果卡內文上限限制於 1.3x，在大字級（如 1.45x）下依然保持佈局完整不破版。
+- 各元件補齊清晰之無障礙說明（`contentDescription` 與 `stateDescription`）。
+
+### 6. ROUND 6 補驗證
+- **vc14/15 升級測試**：驗證從 vc14/15 升級安裝至 vc16 後，DataStore（`files/datastore/settings.preferences_pb`）內設定無損保留。
+- **D1 備份排除驗證**：透過 `bmgr backupnow` 搭配備份規則檢驗，確認 DataStore 敏感金鑰確實排除於備份之外。
+- **連線偵測測試**：確認 `ConnectionTest` 在 `/models` 返回 404 時正確回退至靜音測試音訊，且正確處理 NVIDIA NIM 的音訊格式需求。
+
 ## 2026-10-31 fork6 第六輪：設定頁改版（版本仍是 0.4-fork6，versionCode 15）
 
 依據設計稿與 SPEC_settings.md 全面改版設定頁（`MainActivity` / `res/layout/activity_main.xml`）。鍵盤（IME）本身 UI 與行為維持不變，簽章設定維持本機 debug keystore。
