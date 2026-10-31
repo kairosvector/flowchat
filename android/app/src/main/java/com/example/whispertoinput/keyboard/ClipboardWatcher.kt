@@ -25,6 +25,7 @@ import android.content.Context
 import android.os.Build
 import com.example.whispertoinput.ClipClassifier
 import com.example.whispertoinput.ClipItem
+import com.example.whispertoinput.ClipKind
 import com.example.whispertoinput.ClipRecord
 import com.example.whispertoinput.ClipStore
 import kotlinx.coroutines.CoroutineScope
@@ -108,7 +109,9 @@ class ClipboardWatcher(context: Context, private val onChanged: () -> Unit) {
             if (clip.itemCount == 0) return null
             val text = clip.getItemAt(0).text?.toString()
             if (text.isNullOrEmpty()) return null
-            val flagged = description.extras?.getBoolean(sensitiveKey()) == true
+            // The flag lives in the extras of the clip's own description.
+            val flagged = clip.description?.extras?.getBoolean(sensitiveKey()) == true ||
+                description.extras?.getBoolean(sensitiveKey()) == true
             val now = System.currentTimeMillis()
             val timestamp = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 description.timestamp.takeIf { it > 0 } ?: now
@@ -119,7 +122,14 @@ class ClipboardWatcher(context: Context, private val onChanged: () -> Unit) {
                 }
                 seenAt
             }
-            ClipItem(text, timestamp, ClipClassifier.classify(text, flagged), true)
+            var kind = ClipClassifier.classify(text, flagged)
+            // Some systems put the same clip back a moment later without the flag (the
+            // clipboard overlay does on the emulator): a text that was flagged a moment ago
+            // stays sensitive while it is still remembered in memory.
+            if (!flagged && ClipStore.memory.any { it.text == text && it.kind == ClipKind.SENSITIVE }) {
+                kind = ClipKind.SENSITIVE
+            }
+            ClipItem(text, timestamp, kind, true)
         } catch (_: Exception) {
             // Not allowed to read right now (e.g. not the current keyboard): treat as empty.
             null

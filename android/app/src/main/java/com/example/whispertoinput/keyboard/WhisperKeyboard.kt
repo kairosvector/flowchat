@@ -1468,10 +1468,11 @@ class WhisperKeyboard {
                 layoutParams = LinearLayout.LayoutParams((40 * density).toInt(), (40 * density).toInt())
                 setOnClickListener {
                     haptic(it, HapticFeedbackConstants.KEYBOARD_TAP)
-                    handler.removeCallbacks(revealRunnable)
+                    // `handler` alone would be the button's own (null while it is detached).
+                    this@WhisperKeyboard.handler.removeCallbacks(revealRunnable)
                     revealedText = item.text
                     renderClipTab(context)
-                    handler.postDelayed(revealRunnable, 5000L)
+                    this@WhisperKeyboard.handler.postDelayed(revealRunnable, 5000L)
                 }
             })
         }
