@@ -55,6 +55,8 @@ dependencies {
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("androidx.datastore:datastore-preferences:1.0.0")
     testImplementation("junit:junit:4.13.2")
+    // The Android stub of org.json cannot run in plain unit tests.
+    testImplementation("org.json:json:20231013")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
     implementation("com.github.liuyueyi:quick-transfer-core:0.2.13")

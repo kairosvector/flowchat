@@ -20,11 +20,12 @@
 package com.example.whispertoinput
 
 import android.content.Context
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
 /**
- * The single most recent transcription record.
+ * One transcription record (the history keeps the newest [HistoryCodec.MAX_RECORDS]).
  *
  * @param timestampMillis epoch millis; display with the device's local time.
  * @param rawText the text actually inserted (already post-processed,
@@ -38,11 +39,70 @@ data class TranscriptionRecord(
     val polishedText: String? = null
 )
 
-object TranscriptionHistory {
-    private const val FILE_NAME = "transcription_history.json"
+/**
+ * Pure read / write of the history file text: no Android needed, so it is
+ * unit tested. The file is a JSON array, newest first. The v19 file held a
+ * single JSON object; [parse] still reads that.
+ */
+object HistoryCodec {
+    const val MAX_RECORDS = 20
     private const val KEY_TIMESTAMP = "timestampMillis"
     private const val KEY_RAW_TEXT = "rawText"
     private const val KEY_POLISHED_TEXT = "polishedText"
+
+    /** Records in file order (newest first); anything unreadable gives an empty list. */
+    fun parse(text: String): List<TranscriptionRecord> {
+        return try {
+            val trimmed = text.trim()
+            val objects = if (trimmed.startsWith("[")) {
+                val array = JSONArray(trimmed)
+                (0 until array.length()).mapNotNull { array.optJSONObject(it) }
+            } else {
+                listOf(JSONObject(trimmed))
+            }
+            objects.mapNotNull { fromJson(it) }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun encode(records: List<TranscriptionRecord>): String {
+        val array = JSONArray()
+        for (record in records.take(MAX_RECORDS)) {
+            val obj = JSONObject()
+            obj.put(KEY_TIMESTAMP, record.timestampMillis)
+            obj.put(KEY_RAW_TEXT, record.rawText)
+            obj.put(KEY_POLISHED_TEXT, record.polishedText ?: JSONObject.NULL)
+            array.put(obj)
+        }
+        return array.toString()
+    }
+
+    /**
+     * [record] goes to the front. A repeat of the newest record's original
+     * text (a re-polish of the same transcript) replaces it instead of
+     * adding a second entry. At most [MAX_RECORDS] are kept.
+     */
+    fun add(existing: List<TranscriptionRecord>, record: TranscriptionRecord): List<TranscriptionRecord> {
+        val rest = if (existing.firstOrNull()?.rawText == record.rawText) existing.drop(1) else existing
+        return (listOf(record) + rest).take(MAX_RECORDS)
+    }
+
+    private fun fromJson(obj: JSONObject): TranscriptionRecord? {
+        val text = obj.optString(KEY_RAW_TEXT, "")
+        if (text.isEmpty()) return null
+        val polished = if (obj.isNull(KEY_POLISHED_TEXT)) null
+            else obj.optString(KEY_POLISHED_TEXT, "").ifEmpty { null }
+        return TranscriptionRecord(
+            timestampMillis = obj.optLong(KEY_TIMESTAMP, 0L),
+            rawText = text,
+            polishedText = polished
+        )
+    }
+}
+
+object TranscriptionHistory {
+    private const val FILE_NAME = "transcription_history.json"
 
     /**
      * Overwrite the stored record with the latest one. Never throws:
@@ -59,32 +119,34 @@ object TranscriptionHistory {
             val trimmed = rawText.trim()
             if (trimmed.isEmpty()) return
             val polished = polishedText?.trim()?.ifEmpty { null }
-            save(
-                context,
-                TranscriptionRecord(System.currentTimeMillis(), trimmed, polished)
-            )
+            val record = TranscriptionRecord(System.currentTimeMillis(), trimmed, polished)
+            save(context, HistoryCodec.add(loadAll(context), record))
         } catch (_: Exception) {
             // Intentionally silent: history is best-effort only.
         }
     }
 
     /** Returns the last record, or null if there is none / it is unreadable. */
-    fun loadLast(context: Context): TranscriptionRecord? {
+    fun loadLast(context: Context): TranscriptionRecord? = loadAll(context).firstOrNull()
+
+    /** All records, newest first (at most [HistoryCodec.MAX_RECORDS]); empty when unreadable. */
+    fun loadAll(context: Context): List<TranscriptionRecord> {
         return try {
             val file = File(context.filesDir, FILE_NAME)
-            if (!file.exists()) return null
-            val obj = JSONObject(file.readText())
-            val text = obj.optString(KEY_RAW_TEXT, "")
-            if (text.isEmpty()) return null
-            val polished = if (obj.isNull(KEY_POLISHED_TEXT)) null
-                else obj.optString(KEY_POLISHED_TEXT, "").ifEmpty { null }
-            TranscriptionRecord(
-                timestampMillis = obj.optLong(KEY_TIMESTAMP, 0L),
-                rawText = text,
-                polishedText = polished
-            )
+            if (!file.exists()) emptyList() else HistoryCodec.parse(file.readText())
         } catch (_: Exception) {
-            null
+            emptyList()
+        }
+    }
+
+    /** Removes the record at [index] (0 = newest). Never throws. */
+    fun delete(context: Context, index: Int) {
+        try {
+            val all = loadAll(context)
+            if (index !in all.indices) return
+            save(context, all.filterIndexed { i, _ -> i != index })
+        } catch (_: Exception) {
+            // Best-effort only.
         }
     }
 
@@ -97,23 +159,16 @@ object TranscriptionHistory {
         }
     }
 
-    private fun save(context: Context, record: TranscriptionRecord) {
-        val obj = JSONObject()
-        obj.put(KEY_TIMESTAMP, record.timestampMillis)
-        obj.put(KEY_RAW_TEXT, record.rawText)
-        if (record.polishedText != null) {
-            obj.put(KEY_POLISHED_TEXT, record.polishedText)
-        } else {
-            obj.put(KEY_POLISHED_TEXT, JSONObject.NULL)
-        }
+    private fun save(context: Context, records: List<TranscriptionRecord>) {
+        val json = HistoryCodec.encode(records)
         // Write to a temp file first, then rename, so a crash mid-write
         // cannot leave a half-written file behind.
         val dir = context.filesDir
         val tmp = File(dir, "$FILE_NAME.tmp")
-        tmp.writeText(obj.toString())
+        tmp.writeText(json)
         val target = File(dir, FILE_NAME)
         if (!tmp.renameTo(target)) {
-            target.writeText(obj.toString())
+            target.writeText(json)
             tmp.delete()
         }
     }
