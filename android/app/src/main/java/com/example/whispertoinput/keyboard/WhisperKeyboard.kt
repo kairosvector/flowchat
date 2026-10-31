@@ -94,6 +94,9 @@ private const val MIC_SIZE_ANIM_MS: Long = 120
 
 private const val SELECTION_GRACE_MS: Long = 500
 
+// How long the "潤飾失敗：…" sentence stays in the status bar (SPEC_layout §3.4: errors 4 s).
+private const val POLISH_ERROR_STATUS_MS: Long = 4000
+
 /**
  * Fork6 redesigned keyboard panel. The whole panel is driven by one
  * [UiState]; [render] is the only place that decides what is visible,
@@ -493,10 +496,12 @@ class WhisperKeyboard {
         updateLastTooltip()
         setState(UiState.Result)
         val ctx = keyboardView?.context
-        if (inserted != null && ctx != null) {
+        if (note == PolishNote.FAILED && ctx != null) {
+            // The raw text is already inserted; say why polishing failed
+            // (the result card keeps showing "已插入" and the retry link).
+            showStatus(polishError ?: ErrorMessageMapper.other(ErrorStage.POLISH).resolve(ctx), POLISH_ERROR_STATUS_MS)
+        } else if (inserted != null && ctx != null) {
             showStatus(ctx.getString(R.string.kb_action_inserted), 2000L)
-        } else if (note == PolishNote.FAILED && ctx != null) {
-            showStatus(polishError ?: ErrorMessageMapper.other(ErrorStage.POLISH).resolve(ctx), 2000L)
         }
     }
 
@@ -1285,7 +1290,10 @@ class WhisperKeyboard {
                 }
                 val context = keyboardView?.context
                 if (context != null) {
-                    showStatus(error ?: ErrorMessageMapper.other(ErrorStage.POLISH).resolve(context), 2000L)
+                    showStatus(
+                        error ?: ErrorMessageMapper.other(ErrorStage.POLISH).resolve(context),
+                        POLISH_ERROR_STATUS_MS
+                    )
                 }
             } else {
                 polishedResultText = polished
