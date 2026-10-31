@@ -88,6 +88,8 @@ private const val MIC_SIZE_DP: Float = 96f
 private const val STOP_SIZE_DP: Float = 84f
 private const val MIC_SIZE_ANIM_MS: Long = 120
 
+private const val SELECTION_GRACE_MS: Long = 500
+
 /**
  * Fork6 redesigned keyboard panel. The whole panel is driven by one
  * [UiState]; [render] is the only place that decides what is visible,
@@ -122,6 +124,9 @@ class WhisperKeyboard {
     // Returns false when the text before the cursor no longer matches
     // what was inserted, in which case nothing was deleted.
     private var onUndoInsert: (String) -> Boolean = { false }
+    // Swaps the text before the cursor for another one (only if it still
+    // matches); false = nothing was changed.
+    private var onReplaceInserted: (old: String, new: String) -> Boolean = { _, _ -> false }
     private var onRepolish: (raw: String, done: (String?) -> Unit) -> Unit = { _, done -> done(null) }
 
     // ---- state ----
@@ -150,6 +155,15 @@ class WhisperKeyboard {
     // Where the cursor sat right after the insert (-1 = not seen yet); a
     // cursor anywhere else means the card no longer owns that text.
     private var insertedCursor: Int = -1
+    // After the card swapped the inserted original for the polished text:
+    // what was in the editor before (so "undo" can put it back) and which
+    // version of the result that was. Null when nothing was swapped.
+    private var replacedFrom: String? = null
+    private var replacedFromBase: String? = null
+    // Right after our own swap the editor may report the selection twice
+    // (delete, then commit); until this time those updates only re-record
+    // the cursor instead of counting as "the user moved it".
+    private var selectionGraceUntil: Long = 0
 
     private var polishEnabled: Boolean = true
     private var languageCode: String = LANGUAGE_AUTO
@@ -264,6 +278,7 @@ class WhisperKeyboard {
         onButtonBackspaceWord: () -> Unit = { },
         onInsertText: (String) -> Unit = { },
         onUndoInsert: (String) -> Boolean = { false },
+        onReplaceInserted: (old: String, new: String) -> Boolean = { _, _ -> false },
         onRepolish: (raw: String, done: (String?) -> Unit) -> Unit = { _, done -> done(null) },
     ): View {
         val root = layoutInflater.inflate(R.layout.keyboard_view, null)
@@ -341,6 +356,7 @@ class WhisperKeyboard {
         this.shouldShowRetry = shouldShowRetry
         this.onInsertText = onInsertText
         this.onUndoInsert = onUndoInsert
+        this.onReplaceInserted = onReplaceInserted
         this.onRepolish = onRepolish
 
         capFontScale(root, root.resources.configuration.fontScale)
@@ -394,9 +410,7 @@ class WhisperKeyboard {
         handler.removeCallbacks(ticker)
         repolishing = false
         stagedRaw = null
-        insertedText = null
-        insertedBase = null
-        insertedCursor = -1
+        forgetInserted()
         refreshLastRecord()
         setState(UiState.Idle)
         // Re-read the toggle and the language on every reset (the service
@@ -421,6 +435,8 @@ class WhisperKeyboard {
         this.insertedText = inserted
         this.insertedBase = if (inserted != null) lastResultText else null
         this.insertedCursor = -1
+        this.replacedFrom = null
+        this.replacedFromBase = null
         repolishing = false
         stagedRaw = null
         resultScroll?.scrollTo(0, 0)
@@ -497,9 +513,7 @@ class WhisperKeyboard {
     }
 
     private fun startRecording() {
-        insertedText = null
-        insertedBase = null
-        insertedCursor = -1
+        forgetInserted()
         setState(UiState.Recording)
         onStartRecording()
     }
@@ -1035,8 +1049,7 @@ class WhisperKeyboard {
         }
         // Showing the last result again: nothing of it is in the editor
         // yet as far as this card knows, so insert is offered, undo is not.
-        insertedText = null
-        insertedBase = null
+        forgetInserted()
         // The history file keeps only what was polished; a failure is not stored.
         polishNote = if (polishedResultText.isNullOrEmpty()) PolishNote.OFF else PolishNote.OK
         rawExpanded = false
@@ -1047,22 +1060,82 @@ class WhisperKeyboard {
     private fun onActionInsert() {
         val text = lastResultText ?: return
         if (insertedBase == text) return
+        // An older version of this result is still in the editor (e.g. the
+        // original after an undo-restore): swap it instead of adding a copy.
+        if (insertedText != null && replaceOwned(text)) {
+            render()
+            return
+        }
         onInsertText(text)
         insertedText = text
         insertedBase = text
         insertedCursor = -1
+        replacedFrom = null
+        replacedFromBase = null
         render()
+    }
+
+    /**
+     * Replaces the text this card put into the editor with [newBase] (plus
+     * the same trailing space / newline it had). The service only does it
+     * when the text before the cursor still equals what was inserted; if
+     * not, nothing is touched and the card gives the text up, so "insert"
+     * is offered again. Returns whether the editor was changed.
+     */
+    private fun replaceOwned(newBase: String): Boolean {
+        val old = insertedText ?: return false
+        val oldBase = insertedBase ?: return false
+        val suffix = if (old.startsWith(oldBase)) old.substring(oldBase.length) else ""
+        val replacement = newBase + suffix
+        if (!onReplaceInserted(old, replacement)) {
+            forgetInserted()
+            return false
+        }
+        replacedFrom = old
+        replacedFromBase = oldBase
+        insertedText = replacement
+        insertedBase = newBase
+        insertedCursor = -1
+        selectionGraceUntil = SystemClock.uptimeMillis() + SELECTION_GRACE_MS
+        return true
+    }
+
+    private fun forgetInserted() {
+        insertedText = null
+        insertedBase = null
+        insertedCursor = -1
+        replacedFrom = null
+        replacedFromBase = null
     }
 
     private fun onActionUndo() {
         val inserted = insertedText ?: return
+        // The polished text replaced the original: undo puts the original
+        // back (it does not delete the whole thing). The card then still
+        // shows the polished text and "insert" swaps it in again.
+        val original = replacedFrom
+        if (original != null) {
+            val restored = onReplaceInserted(inserted, original)
+            if (restored) {
+                insertedText = original
+                insertedBase = replacedFromBase
+                replacedFrom = null
+                replacedFromBase = null
+                insertedCursor = -1
+                selectionGraceUntil = SystemClock.uptimeMillis() + SELECTION_GRACE_MS
+                toast(R.string.kb_toast_restored)
+            } else {
+                forgetInserted()
+                toast(R.string.kb_toast_undo_failed)
+            }
+            render()
+            return
+        }
         // The service only deletes when the text before the cursor is
         // still exactly what was inserted; either way the card gives up
         // the text afterwards, so undo is disabled.
         val removed = onUndoInsert(inserted)
-        insertedText = null
-        insertedBase = null
-        insertedCursor = -1
+        forgetInserted()
         toast(if (removed) R.string.kb_toast_undone else R.string.kb_toast_undo_failed)
         render()
     }
@@ -1075,6 +1148,10 @@ class WhisperKeyboard {
      */
     fun onSelectionChanged(selStart: Int, selEnd: Int) {
         if (insertedText == null) return
+        if (SystemClock.uptimeMillis() < selectionGraceUntil && selStart == selEnd) {
+            insertedCursor = selEnd
+            return
+        }
         if (selStart != selEnd) {
             clearInserted()
         } else if (insertedCursor < 0) {
@@ -1087,9 +1164,7 @@ class WhisperKeyboard {
     /** Forget the inserted text: undo is disabled and insert is offered again. */
     fun clearInserted() {
         if (insertedText == null && insertedBase == null) return
-        insertedText = null
-        insertedBase = null
-        insertedCursor = -1
+        forgetInserted()
         if (state == UiState.Result) render()
     }
 
@@ -1116,6 +1191,11 @@ class WhisperKeyboard {
                 polishedResultText = polished
                 polishNote = PolishNote.OK
                 rawExpanded = false
+                // The original is already in the editor: swap it for the
+                // polished text, if (and only if) it is still right there.
+                if (insertedText != null && insertedBase == rawResultText && polished != rawResultText) {
+                    replaceOwned(polished)
+                }
             }
             resultScroll?.scrollTo(0, 0)
             setState(UiState.Result)

@@ -156,7 +156,6 @@
     <string name="kb_step_polishing">AI 潤飾中…</string>
     <string name="kb_retry">↻ 重試</string>
     <string name="kb_space">空白</string>
-    <string name="kb_hold_hint">長按</string>
     <string name="kb_cancel">取消</string>
     <string name="kb_result_hint_insert">點下方按鈕插入文字</string>
     <string name="kb_result_hint_inserted">已插入</string>
@@ -173,6 +172,7 @@
     <string name="kb_polish_retry">重試</string>
     <string name="kb_polish_force">仍要潤飾</string>
     <string name="kb_toast_undone">已復原</string>
+    <string name="kb_toast_restored">已還原為原文</string>
     <string name="kb_toast_undo_failed">游標處的文字已改變，未復原</string>
     <string name="kb_toast_repolish_failed">潤飾失敗，保留原文</string>
     <string name="kb_switch_ime_picker_hint">長按選擇輸入法</string>

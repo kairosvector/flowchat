@@ -197,6 +197,7 @@ class WhisperInputService : InputMethodService() {
             { onDeleteWord() },
             { text -> onInsertText(text) },
             { inserted -> onUndoInsert(inserted) },
+            { old, replacement -> onReplaceInserted(old, replacement) },
             { raw, done -> whisperTranscriber.polishAsync(this, raw, done) },
         )
         applyNavigationBarStyle()
@@ -352,6 +353,26 @@ class WhisperInputService : InputMethodService() {
         val before = inputConnection.getTextBeforeCursor(inserted.length, 0)?.toString()
         if (before != inserted) return false
         return inputConnection.deleteSurroundingText(inserted.length, 0)
+    }
+
+    // Swaps `old` (what the result card inserted) for `replacement`, as one
+    // edit so the host never sees the half-way text. Same safety check as
+    // undo: only when the text right before the cursor is still exactly
+    // `old` and nothing is selected; otherwise nothing is deleted. Returns
+    // whether the editor was changed.
+    private fun onReplaceInserted(old: String, replacement: String): Boolean {
+        if (old.isEmpty()) return false
+        val inputConnection = currentInputConnection ?: return false
+        if (!TextUtils.isEmpty(inputConnection.getSelectedText(0))) return false
+        val before = inputConnection.getTextBeforeCursor(old.length, 0)?.toString()
+        if (before != old) return false
+        inputConnection.beginBatchEdit()
+        try {
+            if (!inputConnection.deleteSurroundingText(old.length, 0)) return false
+            return inputConnection.commitText(replacement, 1)
+        } finally {
+            inputConnection.endBatchEdit()
+        }
     }
 
     // The cursor was moved (or the text changed) by something other than
