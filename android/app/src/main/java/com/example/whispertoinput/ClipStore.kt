@@ -40,6 +40,10 @@ object ClipStore {
     var memory: List<MemoryClip> = emptyList()
         private set
 
+    /** In-memory dismissed key for non-persistable clips (never written to disk). */
+    @Volatile
+    private var memoryDismissedKey: String? = null
+
     suspend fun enabled(context: Context): Boolean = try {
         context.applicationContext.dataStore.data.first()[CLIP_HISTORY_ENABLED] ?: true
     } catch (_: Exception) {
@@ -93,6 +97,7 @@ object ClipStore {
     /** Empties the history file and the in-memory clips (not the system clipboard, not the transcription history). */
     suspend fun clearAll(context: Context) {
         memory = emptyList()
+        memoryDismissedKey = null
         try {
             context.applicationContext.dataStore.edit {
                 it.remove(CLIP_HISTORY_JSON)
@@ -103,17 +108,28 @@ object ClipStore {
         }
     }
 
-    /** How many clips are kept (history file plus memory), for the settings page. */
-    suspend fun count(context: Context): Int =
-        history(context).size + ClipMemory.purge(memory, System.currentTimeMillis(), false).size
+    /** How many clips are kept in the history file, for the settings page. */
+    suspend fun count(context: Context): Int = history(context).size
 
-    suspend fun dismissedKey(context: Context): String? = try {
-        context.applicationContext.dataStore.data.first()[CLIP_DISMISSED]
-    } catch (_: Exception) {
-        null
+    suspend fun dismissedKey(context: Context): String? {
+        val inMemory = memoryDismissedKey
+        if (inMemory != null) return inMemory
+        return try {
+            context.applicationContext.dataStore.data.first()[CLIP_DISMISSED]
+        } catch (_: Exception) {
+            null
+        }
     }
 
-    suspend fun setDismissed(context: Context, key: String) {
+    /**
+     * Remembers a dismissed chip. If [persistable] is true, it is saved to DataStore;
+     * if false (masked clip or verification code), it is kept in memory only.
+     */
+    suspend fun setDismissed(context: Context, key: String, persistable: Boolean = true) {
+        if (!persistable) {
+            memoryDismissedKey = key
+            return
+        }
         try {
             context.applicationContext.dataStore.edit { it[CLIP_DISMISSED] = key }
         } catch (_: Exception) {

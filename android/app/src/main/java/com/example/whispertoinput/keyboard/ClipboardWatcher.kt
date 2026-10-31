@@ -30,6 +30,8 @@ import com.example.whispertoinput.ClipRecord
 import com.example.whispertoinput.ClipStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 /**
@@ -54,6 +56,7 @@ class ClipboardWatcher(context: Context, private val onChanged: () -> Unit) {
     // Before API 26 a clip has no timestamp: the moment it was first seen stands in for it.
     private var seenText: String? = null
     private var seenAt: Long = 0
+    private var watcherScope: CoroutineScope? = null
 
     private val listener = ClipboardManager.OnPrimaryClipChangedListener { refresh() }
 
@@ -63,6 +66,8 @@ class ClipboardWatcher(context: Context, private val onChanged: () -> Unit) {
             m.addPrimaryClipChangedListener(listener)
             started = true
         }
+        watcherScope?.cancel()
+        watcherScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
         refresh()
     }
 
@@ -75,6 +80,8 @@ class ClipboardWatcher(context: Context, private val onChanged: () -> Unit) {
             }
             started = false
         }
+        watcherScope?.cancel()
+        watcherScope = null
         current = null
         ClipStore.keyboardClosed()
     }
@@ -82,7 +89,8 @@ class ClipboardWatcher(context: Context, private val onChanged: () -> Unit) {
     fun refresh() {
         val item = readCurrent()
         current = item
-        CoroutineScope(Dispatchers.Main).launch {
+        val scope = watcherScope ?: return
+        scope.launch {
             if (item != null) ClipStore.record(appContext, item.text, item.timestampMillis, item.kind)
             history = ClipStore.history(appContext)
             onChanged()
@@ -91,7 +99,8 @@ class ClipboardWatcher(context: Context, private val onChanged: () -> Unit) {
 
     /** Reloads the kept history (after a clear). */
     fun reloadHistory() {
-        CoroutineScope(Dispatchers.Main).launch {
+        val scope = watcherScope ?: return
+        scope.launch {
             history = ClipStore.history(appContext)
             onChanged()
         }

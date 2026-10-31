@@ -76,6 +76,8 @@ import com.example.whispertoinput.TranscriptionRecord
 import com.example.whispertoinput.dataStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -272,12 +274,18 @@ class WhisperKeyboard {
     private var errorDetail: String? = null
     private var transientDetail: String? = null
     private var errorRateLimited: Boolean = false
+    private var isErrorShowing: Boolean = false
+    private var keyboardScope: CoroutineScope? = null
+        get() {
+            if (field == null) field = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+            return field
+        }
     private val clearTransientRunnable = Runnable {
         statusResolver.clearTransient()
         transientDetail = null
         renderStatus()
     }
-    private val clearErrorRunnable = Runnable { clearError() }
+    private val clearErrorRunnable = Runnable { clearErrorUi() }
 
     // ---- views ----
     private var keyboardView: View? = null
@@ -564,6 +572,7 @@ class WhisperKeyboard {
         insertedText = null
         tab = Tab.Voice
         state = UiState.Idle
+        isErrorShowing = true
         statusResolver.setError(error.text, durationMs, SystemClock.uptimeMillis())
         render()
         keyboardView?.let { haptic(it, rejectHaptic(), onlyFrom = Build.VERSION_CODES.R) }
@@ -761,15 +770,22 @@ class WhisperKeyboard {
         setState(UiState.Idle)
     }
 
-    private fun clearError() {
+    fun clearErrorUi() {
         handler.removeCallbacks(clearErrorRunnable)
-        if (statusResolver.errorText == null && errorDetail == null && !errorRateLimited) return
+        if (!isErrorShowing && statusResolver.errorText == null && errorDetail == null && !errorRateLimited) {
+            buttonRetry?.visibility = View.GONE
+            return
+        }
         statusResolver.clearError()
         errorDetail = null
         errorRateLimited = false
-        // Status bar and hint row go in the same pass, so the hint never outlives the error.
+        isErrorShowing = false
+        buttonRetry?.visibility = View.GONE
+        labelHint?.setText(R.string.kb_hint_idle)
         render()
     }
+
+    private fun clearError() = clearErrorUi()
 
     // =====================================================================
     // The one place that decides what is on screen
@@ -1039,7 +1055,7 @@ class WhisperKeyboard {
             }
         }
         buttonRetry?.visibility =
-            if (s == UiState.Idle && shouldShowRetry()) View.VISIBLE else View.GONE
+            if (s == UiState.Idle && isErrorShowing && shouldShowRetry()) View.VISIBLE else View.GONE
     }
 
     private fun renderStepChips(context: Context) {
@@ -1284,7 +1300,7 @@ class WhisperKeyboard {
             val key = PasteChip.key(item.text, item.timestampMillis)
             chipDismissArmed = false
             dismissedKey = key
-            CoroutineScope(Dispatchers.Main).launch { ClipStore.setDismissed(context, key) }
+            keyboardScope?.launch { ClipStore.setDismissed(context, key, item.kind.persistable) }
             renderStatus()
             return
         }
@@ -1304,14 +1320,20 @@ class WhisperKeyboard {
     }
 
     private fun onClipChanged() {
+        val cur = clipWatcher?.current
+        val now = System.currentTimeMillis()
+        if (PasteChip.visible(cur, now, pastedKeys, dismissedKey)) {
+            clearErrorUi()
+        }
         renderStatus()
         if (tab == Tab.Clip && state == UiState.Idle) renderClipTab(keyboardView?.context ?: return)
     }
 
     /** The keyboard appeared: start reading the clipboard (the listener is removed in [onKeyboardHidden]). */
     fun onKeyboardShown() {
+        clearErrorUi()
         val context = keyboardView?.context ?: return
-        CoroutineScope(Dispatchers.Main).launch { dismissedKey = ClipStore.dismissedKey(context) }
+        keyboardScope?.launch { dismissedKey = ClipStore.dismissedKey(context) }
         clipWatcher?.start()
     }
 
@@ -1320,6 +1342,8 @@ class WhisperKeyboard {
         clipWatcher?.stop()
         clearReveal()
         chipDismissArmed = false
+        keyboardScope?.cancel()
+        keyboardScope = null
     }
 
     // ---- 📋 tab: the clipboard and the transcription history ----
@@ -1383,7 +1407,7 @@ class WhisperKeyboard {
         }
         clipClearArmed = false
         clearReveal()
-        CoroutineScope(Dispatchers.Main).launch {
+        keyboardScope?.launch {
             ClipStore.clearAll(context)
             clipWatcher?.reloadHistory()
             renderClipTab(context)
@@ -1919,7 +1943,7 @@ class WhisperKeyboard {
     // so a change made in the settings page is picked up).
     private fun refreshTones() {
         val context = keyboardView?.context ?: return
-        CoroutineScope(Dispatchers.Main).launch {
+        keyboardScope?.launch {
             toneState = ToneStore.load(context)
             updateToneKey()
             if (overlay == Overlay.Menu) buildMenu(context)
@@ -2048,7 +2072,7 @@ class WhisperKeyboard {
             context.getString(R.string.kb_tone_switched, toneState.current?.name.orEmpty())
         }
         showStatus(message, 1500L)
-        CoroutineScope(Dispatchers.Main).launch {
+        keyboardScope?.launch {
             try {
                 ToneStore.select(context, id)
             } catch (_: Exception) {
@@ -2172,7 +2196,7 @@ class WhisperKeyboard {
 
     private fun refreshLanguage() {
         val context = keyboardView?.context ?: return
-        CoroutineScope(Dispatchers.Main).launch {
+        keyboardScope?.launch {
             try {
                 // Only a code the API accepts is shown / cycled; anything
                 // else (blank, "multi", garbage) counts as auto.
@@ -2215,7 +2239,7 @@ class WhisperKeyboard {
         val label = languageLabel(context, next)
         labelLanguage?.text = label
         showStatus(context.getString(R.string.kb_toast_language, label), 2000L)
-        CoroutineScope(Dispatchers.Main).launch {
+        keyboardScope?.launch {
             try {
                 context.dataStore.edit { settings ->
                     settings[LANGUAGE_CODE] = next

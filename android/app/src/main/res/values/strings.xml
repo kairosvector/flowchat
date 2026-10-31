@@ -132,8 +132,10 @@
     <string name="set_clip_record">記錄剪貼簿</string>
     <string name="set_clip_record_desc">只存在這支手機，最多 20 筆、保留 24 小時；敏感內容不存</string>
     <string name="set_clip_clear">清除剪貼簿紀錄</string>
+    <string name="set_clip_clear_btn">清除</string>
     <string name="set_clip_count">目前 %1$d 筆</string>
     <string name="set_clip_clear_confirm">要清除剪貼簿紀錄嗎？這不會清除系統剪貼簿，也不會清除語音紀錄。</string>
+    <string name="set_clip_clear_confirm_count">要清除 %1$d 筆剪貼簿紀錄嗎？</string>
     <string name="set_clip_clear_done">已清除</string>
     <string name="kb_tone_off_name">關</string>
     <string name="kb_tone_pro_desc">工作訊息</string>

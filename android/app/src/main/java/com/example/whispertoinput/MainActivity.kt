@@ -843,19 +843,27 @@ class MainActivity : AppCompatActivity() {
 
     // ---- clipboard ----------------------------------------------------------------
 
+    private var clipCount = 0
+
     private fun refreshClipCount() {
         val label = findViewById<TextView?>(R.id.text_clip_count) ?: return
+        val clearBtn = findViewById<View?>(R.id.btn_clip_clear)
+        val clearRow = findViewById<View?>(R.id.row_clip_clear)
         lifecycleScope.launch {
-            label.text = getString(R.string.set_clip_count, ClipStore.count(this@MainActivity))
+            clipCount = ClipStore.count(this@MainActivity)
+            label.text = getString(R.string.set_clip_count, clipCount)
+            clearBtn?.isEnabled = clipCount > 0
+            clearRow?.isEnabled = clipCount > 0
         }
     }
 
     private fun setupClipClear() {
-        findViewById<View>(R.id.row_clip_clear).setOnClickListener {
+        val onClearClick = View.OnClickListener {
+            if (clipCount <= 0) return@OnClickListener
             MaterialAlertDialogBuilder(this)
-                .setMessage(R.string.set_clip_clear_confirm)
+                .setMessage(getString(R.string.set_clip_clear_confirm_count, clipCount))
                 .setNegativeButton(R.string.set_cancel, null)
-                .setPositiveButton(R.string.set_clip_clear) { _, _ ->
+                .setPositiveButton(R.string.set_clip_clear_btn) { _, _ ->
                     lifecycleScope.launch {
                         ClipStore.clearAll(this@MainActivity)
                         refreshClipCount()
@@ -864,6 +872,8 @@ class MainActivity : AppCompatActivity() {
                 }
                 .show()
         }
+        findViewById<View?>(R.id.row_clip_clear)?.setOnClickListener(onClearClick)
+        findViewById<View?>(R.id.btn_clip_clear)?.setOnClickListener(onClearClick)
     }
 
     // ---- tones -------------------------------------------------------------------

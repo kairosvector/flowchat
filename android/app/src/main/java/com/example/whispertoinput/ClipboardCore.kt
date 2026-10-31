@@ -50,9 +50,11 @@ object ClipClassifier {
 
     /**
      * Judged in the order of SPEC_r8 §13.3: the sensitive flag, a verification code,
-     * a card number, something that looks like a password or key, an ID number.
-     * A web address is never taken for a password (it would have upper, lower,
-     * digits and symbols); an address is only masked when the flag says so.
+     * a card number, a web address, something that looks like a password or key, an ID number.
+     * Note: [url] MUST be checked before [looksLikePassword]. A standard URL typically contains
+     * uppercase, lowercase, digits, and punctuation/symbols without whitespace, which would
+     * otherwise satisfy [looksLikePassword] and be wrongly classified as a password/secret.
+     * An address is ordinary/persistable and only masked when the system flag says so.
      */
     fun classify(text: String, sensitiveFlag: Boolean): ClipKind {
         if (sensitiveFlag) return ClipKind.SENSITIVE
@@ -192,6 +194,8 @@ object ClipList {
     /**
      * The current system clipboard first (when it is text), then the rest by time: the
      * ordinary history and the in-memory clips, without a second row for the same text.
+     * When [current] is non-persistable (a verification code or sensitive/masked clip),
+     * it is omitted once its age exceeds [ClipMemory.TTL_MILLIS] (2 minutes).
      */
     fun build(
         current: ClipItem?,
@@ -199,11 +203,16 @@ object ClipList {
         memory: List<MemoryClip>,
         now: Long
     ): List<ClipItem> {
+        val validCurrent = if (current != null && !current.kind.persistable && (now - current.timestampMillis > ClipMemory.TTL_MILLIS)) {
+            null
+        } else {
+            current
+        }
         val rest = (
             history.map { ClipItem(it.text, it.timestampMillis, ClipClassifier.classify(it.text, false), false) } +
                 ClipMemory.purge(memory, now, false).map { ClipItem(it.text, it.timestampMillis, it.kind, false) }
             ).sortedByDescending { it.timestampMillis }
-        val all = listOfNotNull(current) + rest
+        val all = listOfNotNull(validCurrent) + rest
         return all.distinctBy { it.text }
     }
 }

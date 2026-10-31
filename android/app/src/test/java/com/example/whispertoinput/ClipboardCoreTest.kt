@@ -245,6 +245,29 @@ class ClipboardCoreTest {
         assertEquals(ClipKind.URL, items.single().kind)
     }
 
+    @Test
+    fun nonPersistableCurrentClipExpiresAfterTwoMinutesInList() {
+        // OTP older than 2 minutes is hidden even if it is currently in system clipboard
+        val expiredOtp = ClipItem("482913", now - 2 * minute - 1, ClipKind.OTP, true)
+        val list1 = ClipList.build(expiredOtp, listOf(ClipRecord("乙", now)), emptyList(), now)
+        assertEquals(listOf("乙"), list1.map { it.text })
+
+        // OTP within 2 minutes is shown
+        val freshOtp = ClipItem("482913", now - minute, ClipKind.OTP, true)
+        val list2 = ClipList.build(freshOtp, listOf(ClipRecord("乙", now)), emptyList(), now)
+        assertEquals(listOf("482913", "乙"), list2.map { it.text })
+
+        // Masked/sensitive card older than 2 minutes is hidden
+        val expiredCard = ClipItem("4111 1111 1111 1111", now - 2 * minute - 1, ClipKind.CARD, true)
+        val list3 = ClipList.build(expiredCard, listOf(ClipRecord("乙", now)), emptyList(), now)
+        assertEquals(listOf("乙"), list3.map { it.text })
+
+        // Ordinary text older than 2 minutes stays visible as current clipboard
+        val oldText = ClipItem("old text", now - 10 * minute, ClipKind.TEXT, true)
+        val list4 = ClipList.build(oldText, listOf(ClipRecord("乙", now)), emptyList(), now)
+        assertEquals(listOf("old text", "乙"), list4.map { it.text })
+    }
+
     // ---- the paste chip ----
 
     private fun item(text: String, ts: Long) = ClipItem(text, ts, ClipClassifier.classify(text, false), true)
