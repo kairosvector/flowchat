@@ -44,7 +44,7 @@ class ToneTest {
         val tones = TonePrompts.defaultTones()
         assertEquals(listOf(TONE_PRO, TONE_CHAT), tones.map { it.id })
         assertEquals(listOf("專業", "聊天"), tones.map { it.name })
-        assertEquals(listOf("工作訊息", "口語＋少量 emoji"), tones.map { it.desc })
+        assertEquals(listOf("工作訊息", "口語＋emoji"), tones.map { it.desc })
         assertTrue(tones.all { it.builtin && it.promptVersion == 4 })
         assertEquals(4, POLISH_PROMPT_VERSION)
     }

@@ -116,6 +116,8 @@
     <string name="kb_history_empty">尚無紀錄</string>
     <string name="kb_enter">送出</string>
     <string name="kb_tone_off_name">關</string>
+    <string name="kb_tone_pro_desc">工作訊息</string>
+    <string name="kb_tone_chat_desc">口語＋emoji</string>
     <string name="kb_tone_off_desc">不潤飾，插入原文</string>
     <string name="kb_tone_view_prompt_cd">查看%1$s的指令</string>
     <string name="kb_tone_switched">已切到 %1$s</string>

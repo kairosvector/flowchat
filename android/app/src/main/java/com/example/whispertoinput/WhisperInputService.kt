@@ -70,11 +70,17 @@ class WhisperInputService : InputMethodService() {
         toneId: String?
     ) {
         if (!text.isNullOrEmpty()) {
-            if (note == PolishNote.OK || note == PolishNote.FAILED) {
-                // Polishing ran (it worked or it failed): the result card
-                // waits for "insert" (SPEC_r8 RESULT_PENDING), nothing is
-                // typed into the editor yet.
+            val mode = ResultFlow.forNote(note)
+            if (mode == ResultMode.PENDING_CARD) {
+                // Polished: the result card waits for "insert" (SPEC_r8
+                // RESULT_PENDING), nothing is typed into the editor yet.
                 whisperKeyboard.showResult(raw ?: text.trim(), polished, text, note, polishError, toneId)
+            } else if (mode == ResultMode.INSERTED_WITH_RETRY) {
+                // Polishing failed: the original goes in right away (as in
+                // v19) and the card offers the retry that swaps it.
+                currentInputConnection?.commitText(text, 1)
+                whisperKeyboard.showInsertedAfterFailure(raw ?: text.trim(), text, polishError, toneId)
+                switchBackIfWanted()
             } else {
                 // AI off or a short sentence: no card, the text goes straight in.
                 currentInputConnection?.commitText(text, 1)
@@ -207,6 +213,7 @@ class WhisperInputService : InputMethodService() {
             { text -> onInsertText(text) },
             { text, submit -> onInsertResult(text, submit) },
             { inserted -> onUndoInsert(inserted) },
+            { old, replacement -> onReplaceInserted(old, replacement) },
             { raw, toneId, done -> whisperTranscriber.polishAsync(this, raw, toneId, done) },
             { toneId -> onOpenToneEditor(toneId) },
         )
@@ -383,6 +390,24 @@ class WhisperInputService : InputMethodService() {
         val before = inputConnection.getTextBeforeCursor(inserted.length, 0)?.toString()
         if (before != inserted) return false
         return inputConnection.deleteSurroundingText(inserted.length, 0)
+    }
+
+    // Swaps `old` (what the card inserted) for `replacement` as one edit, only
+    // while the text right before the cursor is still exactly `old` and
+    // nothing is selected (same check as undo). Returns whether it changed.
+    private fun onReplaceInserted(old: String, replacement: String): Boolean {
+        if (old.isEmpty()) return false
+        val inputConnection = currentInputConnection ?: return false
+        if (!TextUtils.isEmpty(inputConnection.getSelectedText(0))) return false
+        val before = inputConnection.getTextBeforeCursor(old.length, 0)?.toString()
+        if (before != old) return false
+        inputConnection.beginBatchEdit()
+        try {
+            if (!inputConnection.deleteSurroundingText(old.length, 0)) return false
+            return inputConnection.commitText(replacement, 1)
+        } finally {
+            inputConnection.endBatchEdit()
+        }
     }
 
     // The cursor moved or the text changed (the card no longer follows the

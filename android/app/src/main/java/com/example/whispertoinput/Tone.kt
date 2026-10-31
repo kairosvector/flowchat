@@ -170,7 +170,7 @@ object TonePrompts {
     /** The two tones a fresh install (or a migration) starts with. */
     fun defaultTones(proPrompt: String = PRO): List<Tone> = listOf(
         Tone(TONE_PRO, "專業", "專業", "工作訊息", proPrompt, builtin = true),
-        Tone(TONE_CHAT, "聊天", "聊天", "口語＋少量 emoji", CHAT, builtin = true)
+        Tone(TONE_CHAT, "聊天", "聊天", "口語＋emoji", CHAT, builtin = true)
     )
 }
 
