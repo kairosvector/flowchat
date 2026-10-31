@@ -67,7 +67,7 @@
     <string name="kb_retry">↻ 重試</string>
     <string name="kb_space">空白</string>
     <string name="kb_cancel">取消</string>
-    <string name="kb_result_hint_insert">點下方按鈕插入文字</string>
+    <string name="kb_result_hint_insert">點「插入」放入文字</string>
     <string name="kb_result_hint_inserted">已插入</string>
     <string name="kb_label_raw">原文</string>
     <string name="kb_label_ai">AI 潤飾</string>
@@ -86,6 +86,14 @@
     <string name="kb_toast_undo_failed">游標處的文字已改變，未復原</string>
     <string name="kb_toast_repolish_failed">潤飾失敗，保留原文</string>
     <string name="kb_switch_ime_picker_hint">長按選擇輸入法</string>
+    <string name="kb_insert_last">插入上次結果</string>
+    <string name="kb_polish">AI 潤飾</string>
+    <string name="kb_status_polish_on">AI 潤飾已開啟</string>
+    <string name="kb_status_polish_off">AI 潤飾已關閉</string>
+    <string name="kb_state_open">開啟</string>
+    <string name="kb_state_closed">關閉</string>
+    <string name="kb_listening">聆聽中 </string>
+    <string name="kb_backspace">退格</string>
 
 
     <!-- ================= Fork6 round 6: settings page (zh-TW) ================= -->

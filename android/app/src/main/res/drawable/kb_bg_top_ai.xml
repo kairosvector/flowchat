@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_activated="true">
+        <inset
+            android:insetLeft="4dp"
+            android:insetTop="4dp"
+            android:insetRight="4dp"
+            android:insetBottom="4dp">
+            <ripple android:color="@color/kb_ripple">
+                <shape android:shape="rectangle">
+                    <corners android:radius="12dp" />
+                    <solid android:color="@color/kb_tertiary_container" />
+                </shape>
+            </ripple>
+        </inset>
+    </item>
+    <item>
+        <inset
+            android:insetLeft="4dp"
+            android:insetTop="4dp"
+            android:insetRight="4dp"
+            android:insetBottom="4dp">
+            <ripple android:color="@color/kb_ripple">
+                <shape android:shape="rectangle">
+                    <corners android:radius="12dp" />
+                    <solid android:color="@android:color/transparent" />
+                    <stroke
+                        android:width="1.5dp"
+                        android:color="@color/kb_outline" />
+                </shape>
+            </ripple>
+        </inset>
+    </item>
+</selector>

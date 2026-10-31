@@ -28,6 +28,7 @@
      (it re-adds the view as wrap_content), so the fixed 280dp lives on the
      inner LinearLayout, whose params survive inflation. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/keyboard_view"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -46,7 +47,7 @@
     android:paddingEnd="8dp"
     android:paddingBottom="8dp">
 
-    <!-- Top row, 48dp: preview chip | AI polish pill | settings -->
+    <!-- Top row, 48dp: last | AI polish toggle | status text | settings | backspace -->
     <LinearLayout
         android:id="@+id/top_row"
         android:layout_width="match_parent"
@@ -54,128 +55,48 @@
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
-        <LinearLayout
-            android:id="@+id/preview_chip"
+        <ImageButton
+            android:id="@+id/btn_last"
+            style="@style/KbTopKey"
+            android:contentDescription="@string/kb_insert_last"
+            android:src="@drawable/kb_ic_paste" />
+
+        <ImageButton
+            android:id="@+id/btn_polish_toggle"
+            style="@style/KbTopKey"
+            android:background="@drawable/kb_bg_top_ai"
+            android:contentDescription="@string/kb_polish"
+            android:src="@drawable/kb_ic_sparkle_state"
+            app:tint="@color/kb_color_top_ai" />
+
+        <TextView
+            android:id="@+id/status_text"
             android:layout_width="0dp"
             android:layout_height="48dp"
             android:layout_weight="1"
-            android:background="@drawable/kb_bg_chip"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingStart="12dp"
-            android:paddingEnd="0dp">
-
-            <TextView
-                android:id="@+id/preview_tag"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:background="@drawable/kb_bg_label"
-                android:paddingStart="6dp"
-                android:paddingTop="2dp"
-                android:paddingEnd="6dp"
-                android:paddingBottom="2dp"
-                android:text="@string/kb_tag_last"
-                android:textColor="@color/kb_on_surface_variant"
-                android:textSize="11sp"
-                android:textStyle="bold" />
-
-            <View
-                android:id="@+id/recording_dot"
-                android:layout_width="8dp"
-                android:layout_height="8dp"
-                android:background="@drawable/kb_bg_recording_dot"
-                android:visibility="gone" />
-
-            <TextView
-                android:id="@+id/preview_text"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:layout_weight="1"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:textColor="@color/kb_on_surface"
-                android:textSize="14sp" />
-
-            <TextView
-                android:id="@+id/preview_timer"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="14dp"
-                android:fontFeatureSettings="tnum"
-                android:text="@string/kb_timer_zero"
-                android:textColor="@color/kb_recording"
-                android:textSize="13sp"
-                android:textStyle="bold"
-                android:visibility="gone" />
-
-            <ImageButton
-                android:id="@+id/btn_preview_insert"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:background="@drawable/kb_bg_insert_small"
-                android:contentDescription="@string/kb_action_insert"
-                android:paddingStart="20dp"
-                android:paddingTop="16dp"
-                android:paddingEnd="12dp"
-                android:paddingBottom="16dp"
-                android:scaleType="fitCenter"
-                android:src="@drawable/kb_ic_insert"
-                android:tint="@color/kb_on_primary_container" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:id="@+id/btn_polish_toggle"
-            android:layout_width="wrap_content"
-            android:layout_height="48dp"
-            android:layout_marginStart="6dp"
-            android:background="@drawable/kb_bg_pill_on"
-            android:clickable="true"
-            android:contentDescription="@string/polish_toggle_hint"
-            android:focusable="true"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingStart="12dp"
-            android:paddingEnd="10dp">
-
-            <ImageView
-                android:id="@+id/polish_icon"
-                android:layout_width="18dp"
-                android:layout_height="18dp"
-                android:importantForAccessibility="no"
-                android:src="@drawable/kb_ic_sparkle"
-                android:tint="@color/kb_on_tertiary_container" />
-
-            <TextView
-                android:id="@+id/polish_label"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="4dp"
-                android:text="@string/kb_pill_ai"
-                android:textColor="@color/kb_on_tertiary_container"
-                android:textSize="13sp"
-                android:textStyle="bold" />
-
-            <ImageView
-                android:id="@+id/polish_switch"
-                android:layout_width="26dp"
-                android:layout_height="16dp"
-                android:layout_marginStart="6dp"
-                android:importantForAccessibility="no"
-                android:src="@drawable/kb_switch_on" />
-        </LinearLayout>
+            android:accessibilityLiveRegion="polite"
+            android:drawablePadding="6dp"
+            android:ellipsize="end"
+            android:gravity="center"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:singleLine="true"
+            android:textColor="@color/kb_on_surface_variant"
+            android:textSize="13sp" />
 
         <ImageButton
             android:id="@+id/btn_settings"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
+            style="@style/KbTopKey"
             android:contentDescription="@string/kb_settings"
-            android:padding="13dp"
-            android:scaleType="fitCenter"
             android:src="@drawable/kb_ic_settings"
-            android:tint="@color/kb_on_surface_variant" />
+            app:tint="@color/kb_on_surface_variant" />
+
+        <com.example.whispertoinput.keyboard.BackspaceButton
+            android:id="@+id/btn_backspace"
+            style="@style/KbTopKey"
+            android:contentDescription="@string/kb_backspace"
+            android:src="@drawable/kb_ic_backspace"
+            app:tint="@color/kb_on_surface" />
     </LinearLayout>
 
     <!-- Middle area: either the main (mic) group or the result card. -->
@@ -212,18 +133,17 @@
                     android:layout_weight="1"
                     android:clipChildren="false">
 
-                    <LinearLayout
+                    <FrameLayout
                         android:id="@+id/key_language_col"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_gravity="center"
-                        android:gravity="center_horizontal"
-                        android:orientation="vertical">
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent">
 
                         <ImageButton
                             android:id="@+id/btn_language"
                             android:layout_width="48dp"
                             android:layout_height="48dp"
+                            android:layout_gravity="start|center_vertical"
+                            android:layout_marginStart="12dp"
                             android:background="@drawable/kb_bg_secondary_key"
                             android:contentDescription="@string/kb_language"
                             android:padding="13dp"
@@ -233,13 +153,16 @@
 
                         <TextView
                             android:id="@+id/label_language"
-                            android:layout_width="wrap_content"
+                            android:layout_width="48dp"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
+                            android:layout_gravity="top|start"
+                            android:layout_marginStart="12dp"
+                            android:layout_marginTop="96dp"
+                            android:gravity="center_horizontal"
                             android:text="@string/kb_lang_auto"
                             android:textColor="@color/kb_on_surface_variant"
                             android:textSize="11sp" />
-                    </LinearLayout>
+                    </FrameLayout>
 
                     <com.example.whispertoinput.keyboard.WaveformView
                         android:id="@+id/wave_left"
@@ -292,18 +215,17 @@
                     android:layout_weight="1"
                     android:clipChildren="false">
 
-                    <LinearLayout
+                    <FrameLayout
                         android:id="@+id/key_history_col"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_gravity="center"
-                        android:gravity="center_horizontal"
-                        android:orientation="vertical">
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent">
 
                         <ImageButton
                             android:id="@+id/btn_history"
                             android:layout_width="48dp"
                             android:layout_height="48dp"
+                            android:layout_gravity="end|center_vertical"
+                            android:layout_marginEnd="12dp"
                             android:background="@drawable/kb_bg_secondary_key"
                             android:contentDescription="@string/kb_history"
                             android:padding="13dp"
@@ -312,13 +234,17 @@
                             android:tint="@color/kb_on_surface" />
 
                         <TextView
-                            android:layout_width="wrap_content"
+                            android:id="@+id/label_history"
+                            android:layout_width="48dp"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
+                            android:layout_gravity="top|end"
+                            android:layout_marginEnd="12dp"
+                            android:layout_marginTop="96dp"
+                            android:gravity="center_horizontal"
                             android:text="@string/kb_history"
                             android:textColor="@color/kb_on_surface_variant"
                             android:textSize="11sp" />
-                    </LinearLayout>
+                    </FrameLayout>
 
                     <com.example.whispertoinput.keyboard.WaveformView
                         android:id="@+id/wave_right"
@@ -719,8 +645,8 @@
         </LinearLayout>
     </FrameLayout>
 
-    <!-- Bottom action row, 52dp, same position in every state:
-         left key (switch IME / cancel / mic) | space | backspace | enter -->
+    <!-- Bottom action row, 52dp:
+         left key (72dp) | space (0dp weight 1) | enter (72dp) -->
     <LinearLayout
         android:id="@+id/bottom_row"
         android:layout_width="match_parent"
@@ -730,19 +656,22 @@
 
         <ImageButton
             android:id="@+id/btn_left_action"
-            android:layout_width="56dp"
-            android:layout_height="match_parent"
+            android:layout_width="72dp"
+            android:layout_height="52dp"
             android:background="@drawable/kb_bg_key_alt"
             android:contentDescription="@string/btn_previous_ime_hint"
-            android:padding="15dp"
+            android:paddingStart="25dp"
+            android:paddingTop="15dp"
+            android:paddingEnd="25dp"
+            android:paddingBottom="15dp"
             android:scaleType="fitCenter"
             android:src="@drawable/kb_ic_keyboard"
-            android:tint="@color/kb_on_surface_variant" />
+            app:tint="@color/kb_on_surface_variant" />
 
         <LinearLayout
             android:id="@+id/btn_space_bar"
             android:layout_width="0dp"
-            android:layout_height="match_parent"
+            android:layout_height="52dp"
             android:layout_marginStart="6dp"
             android:layout_weight="1"
             android:background="@drawable/kb_bg_key"
@@ -757,49 +686,32 @@
                 android:layout_height="20dp"
                 android:importantForAccessibility="no"
                 android:src="@drawable/kb_ic_space"
-                android:tint="@color/kb_on_surface_variant" />
+                app:tint="@color/kb_on_surface_variant" />
 
             <TextView
+                android:id="@+id/label_space"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="6dp"
                 android:text="@string/kb_space"
                 android:textColor="@color/kb_on_surface_variant"
-                android:textSize="14sp" />
+                android:textSize="13sp" />
         </LinearLayout>
-
-        <FrameLayout
-            android:layout_width="56dp"
-            android:layout_height="match_parent"
-            android:layout_marginStart="6dp"
-            android:background="@drawable/kb_bg_key_alt">
-
-            <com.example.whispertoinput.keyboard.BackspaceButton
-                android:id="@+id/btn_backspace"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:background="@android:color/transparent"
-                android:contentDescription="@string/backspace_button_hint"
-                android:padding="15dp"
-                android:scaleType="fitCenter"
-                android:src="@drawable/kb_ic_backspace"
-                android:tint="@color/kb_on_surface" />
-        </FrameLayout>
 
         <ImageButton
             android:id="@+id/btn_enter"
-            android:layout_width="64dp"
-            android:layout_height="match_parent"
+            android:layout_width="72dp"
+            android:layout_height="52dp"
             android:layout_marginStart="6dp"
             android:background="@drawable/kb_bg_key_container"
             android:contentDescription="@string/start_transcribing"
-            android:paddingStart="21dp"
+            android:paddingStart="25dp"
             android:paddingTop="15dp"
-            android:paddingEnd="21dp"
+            android:paddingEnd="25dp"
             android:paddingBottom="15dp"
             android:scaleType="fitCenter"
             android:src="@drawable/kb_ic_enter"
-            android:tint="@color/kb_on_primary_container" />
+            app:tint="@color/kb_on_primary_container" />
     </LinearLayout>
 </LinearLayout>
 </FrameLayout>
