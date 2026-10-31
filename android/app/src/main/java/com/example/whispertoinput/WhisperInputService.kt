@@ -448,11 +448,12 @@ class WhisperInputService : InputMethodService() {
         launchMainActivity()
     }
 
-    // "編輯" in the prompt viewer: straight to that tone's edit screen.
+    // "編輯" in the prompt viewer: opens settings, opens that tone's edit screen, and on return scrolls to AI tone section.
     private fun onOpenToneEditor(toneId: String) {
-        val intent = Intent(this, ToneEditActivity::class.java)
-        intent.putExtra(ToneEditActivity.EXTRA_TONE_ID, toneId)
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val intent = Intent(this, MainActivity::class.java).apply {
+            putExtra(ToneEditActivity.EXTRA_TONE_ID, toneId)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
         startActivity(intent)
     }
 

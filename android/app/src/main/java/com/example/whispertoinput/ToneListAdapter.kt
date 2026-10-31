@@ -81,7 +81,7 @@ class ToneListAdapter(
         holder.name.text = tone.name
         holder.kind.setText(if (tone.builtin) R.string.set_tone_builtin else R.string.set_tone_custom)
         holder.current.visibility = if (tone.id == currentId) View.VISIBLE else View.GONE
-        holder.preview.text = tone.prompt.replace(Regex("\\s+"), " ")
+        holder.preview.text = TonePreview.of(tone.prompt)
         holder.itemView.setOnClickListener { onClick(tone) }
         holder.handle.contentDescription = context.getString(R.string.set_drag_cd, tone.name)
         // Only the handle starts a drag.

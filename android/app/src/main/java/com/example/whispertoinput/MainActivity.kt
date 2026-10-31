@@ -195,6 +195,7 @@ class MainActivity : AppCompatActivity() {
         setupAdvancedRows()
         setupAbout()
         loadSettings()
+        handleToneIntent(intent)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -209,6 +210,14 @@ class MainActivity : AppCompatActivity() {
         // Back from the tone editor: show the new list.
         if (settingsLoaded) reloadTones()
         refreshClipCount()
+        if (scrollToToneSectionOnResume) {
+            scrollToToneSectionOnResume = false
+            findViewById<View>(R.id.section_tone)?.let { sec ->
+                sec.post {
+                    scrollView.smoothScrollTo(0, sec.top)
+                }
+            }
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -844,6 +853,7 @@ class MainActivity : AppCompatActivity() {
     // ---- clipboard ----------------------------------------------------------------
 
     private var clipCount = 0
+    private var scrollToToneSectionOnResume = false
 
     private fun refreshClipCount() {
         val label = findViewById<TextView?>(R.id.text_clip_count) ?: return
@@ -1203,5 +1213,22 @@ class MainActivity : AppCompatActivity() {
     private fun hideKeyboard(view: View) {
         val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
         imm.hideSoftInputFromWindow(view.windowToken, 0)
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleToneIntent(intent)
+    }
+
+    private fun handleToneIntent(intent: Intent?) {
+        val toneId = intent?.getStringExtra(ToneEditActivity.EXTRA_TONE_ID)
+        if (!toneId.isNullOrEmpty()) {
+            intent.removeExtra(ToneEditActivity.EXTRA_TONE_ID)
+            scrollToToneSectionOnResume = true
+            startActivity(
+                Intent(this, ToneEditActivity::class.java).putExtra(ToneEditActivity.EXTRA_TONE_ID, toneId)
+            )
+        }
     }
 }

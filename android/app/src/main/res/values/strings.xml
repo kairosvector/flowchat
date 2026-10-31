@@ -121,7 +121,7 @@
     <string name="kb_clip_empty">剪貼簿是空的</string>
     <string name="kb_clip_dismiss">不要顯示這筆 ✕</string>
     <string name="kb_clip_paste_cd">貼上：%1$s</string>
-    <string name="kb_clip_paste_sensitive_cd">貼上敏感內容</string>
+    <string name="kb_clip_paste_sensitive_cd">貼上%1$s，已隱藏</string>
     <string name="kb_clip_reveal">顯示內容</string>
     <string name="kb_clip_hidden_cd">%1$s，已隱藏</string>
     <string name="kb_sens_generic">敏感內容</string>

@@ -822,29 +822,73 @@
         android:importantForAccessibility="no"
         android:visibility="gone" />
 
-    <!-- Tone menu: 208dp wide, right edge on x = 404, rows of 44dp added by code. -->
-    <ScrollView
+    <!-- Tone menu: 208dp wide, right edge on x = 404 (SPEC_r8 §20.1 Method A). -->
+    <FrameLayout
         android:id="@+id/tone_menu"
         android:layout_width="208dp"
-        android:layout_height="144dp"
+        android:layout_height="wrap_content"
         android:layout_gravity="top|end"
         android:layout_marginTop="58dp"
         android:layout_marginEnd="8dp"
         android:background="@drawable/kb_bg_tone_menu"
         android:clipToOutline="true"
         android:elevation="6dp"
-        android:overScrollMode="ifContentScrolls"
-        android:scrollbars="none"
         android:visibility="gone">
 
         <LinearLayout
-            android:id="@+id/tone_menu_list"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:paddingTop="6dp"
-            android:paddingBottom="6dp" />
-    </ScrollView>
+            android:orientation="vertical">
+
+            <!-- "關" slot: 44dp high at y = 64..108, fixed -->
+            <FrameLayout
+                android:id="@+id/tone_menu_off_slot"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:layout_marginTop="6dp" />
+
+            <!-- Divider line below "關" (1dp outlineVariant at y = 108) -->
+            <View
+                android:id="@+id/tone_menu_divider"
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="@color/kb_outline"
+                android:visibility="gone" />
+
+            <!-- Tone list container -->
+            <FrameLayout
+                android:id="@+id/tone_menu_list_container"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <ScrollView
+                    android:id="@+id/tone_menu_scroll"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:clipToPadding="false"
+                    android:fadeScrollbars="true"
+                    android:overScrollMode="ifContentScrolls"
+                    android:scrollbars="vertical">
+
+                    <LinearLayout
+                        android:id="@+id/tone_menu_list"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:paddingBottom="6dp" />
+                </ScrollView>
+
+                <!-- Bottom fade: 12dp from transparent to surface color -->
+                <View
+                    android:id="@+id/tone_menu_fade"
+                    android:layout_width="match_parent"
+                    android:layout_height="12dp"
+                    android:layout_gravity="bottom"
+                    android:background="@drawable/kb_bg_menu_fade"
+                    android:visibility="gone" />
+            </FrameLayout>
+        </LinearLayout>
+    </FrameLayout>
 
     <!-- Prompt viewer: 396 x 214 card at (8, 58). -->
     <LinearLayout

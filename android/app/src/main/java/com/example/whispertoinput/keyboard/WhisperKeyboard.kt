@@ -346,7 +346,11 @@ class WhisperKeyboard {
 
     private var scrim: View? = null
     private var toneMenu: View? = null
+    private var toneMenuOffSlot: ViewGroup? = null
+    private var toneMenuDivider: View? = null
+    private var toneMenuScroll: ScrollView? = null
     private var toneMenuList: LinearLayout? = null
+    private var toneMenuFade: View? = null
     private var promptSheet: View? = null
     private var promptChips: LinearLayout? = null
     private var promptText: TextView? = null
@@ -437,7 +441,11 @@ class WhisperKeyboard {
         buttonEnter = root.findViewById(R.id.btn_enter)
         scrim = root.findViewById(R.id.scrim)
         toneMenu = root.findViewById(R.id.tone_menu)
+        toneMenuOffSlot = root.findViewById(R.id.tone_menu_off_slot)
+        toneMenuDivider = root.findViewById(R.id.tone_menu_divider)
+        toneMenuScroll = root.findViewById(R.id.tone_menu_scroll)
         toneMenuList = root.findViewById(R.id.tone_menu_list)
+        toneMenuFade = root.findViewById(R.id.tone_menu_fade)
         promptSheet = root.findViewById(R.id.prompt_sheet)
         promptChips = root.findViewById(R.id.prompt_chips)
         promptText = root.findViewById(R.id.prompt_text)
@@ -1271,7 +1279,8 @@ class WhisperKeyboard {
             tag?.text = context.getString(sensitiveLabel(item.kind))
             text?.text = "••••"
             // Never the content: TalkBack says it is sensitive, no tooltip.
-            chip.contentDescription = context.getString(R.string.kb_clip_paste_sensitive_cd)
+            val label = context.getString(sensitiveLabel(item.kind))
+            chip.contentDescription = context.getString(R.string.kb_clip_paste_sensitive_cd, label)
         } else {
             icon?.setImageResource(R.drawable.kb_ic_paste)
             tag?.visibility = View.GONE
@@ -1963,13 +1972,30 @@ class WhisperKeyboard {
         overlay = Overlay.Menu
         scrim?.let { Motion.appear(it, 150, Motion.fastOutSlowIn) }
         toneMenu?.let { Motion.appear(it, 150, Motion.fastOutSlowIn, scaleFrom = 0.92f) }
+        val n = toneState.tones.size
+        val scroll = toneMenuScroll
+        if (n >= 4 && scroll != null) {
+            val density = context.resources.displayMetrics.density
+            val curIndex = toneState.tones.indexOfFirst { it.id == toneState.currentId }
+            if (curIndex >= 3) {
+                scroll.post {
+                    scroll.scrollTo(0, ((curIndex - 1) * 44 * density).toInt())
+                }
+            } else {
+                scroll.scrollTo(0, 0)
+            }
+        }
         render()
     }
 
     private fun buildMenu(context: Context) {
+        val density = context.resources.displayMetrics.density
+        val offSlot = toneMenuOffSlot ?: return
         val list = toneMenuList ?: return
+        offSlot.removeAllViews()
         list.removeAllViews()
-        list.addView(
+
+        offSlot.addView(
             menuRow(
                 context, TONE_OFF, context.getString(R.string.kb_tone_off_name),
                 context.getString(R.string.kb_tone_off_desc), selected = !toneState.polishOn, withPrompt = false
@@ -1983,12 +2009,44 @@ class WhisperKeyboard {
                 )
             )
         }
-        // 144dp for "off" plus two tones; at most four rows show, the rest scrolls.
-        val rows = minOf(1 + toneState.tones.size, 4)
-        toneMenu?.let {
-            val lp = it.layoutParams
-            lp.height = ((rows * 44 + 12) * context.resources.displayMetrics.density).toInt()
-            it.layoutParams = lp
+
+        val n = toneState.tones.size
+        val scroll = toneMenuScroll
+        val divider = toneMenuDivider
+        val fade = toneMenuFade
+        val menu = toneMenu
+
+        if (n <= 3) {
+            menu?.let {
+                val lp = it.layoutParams
+                lp.height = ((12 + 44 * (n + 1)) * density).toInt()
+                it.layoutParams = lp
+            }
+            scroll?.let {
+                val lp = it.layoutParams
+                lp.height = ((44 * n) * density).toInt()
+                it.layoutParams = lp
+                it.setOnScrollChangeListener(null)
+            }
+            divider?.visibility = View.GONE
+            fade?.visibility = View.GONE
+        } else {
+            menu?.let {
+                val lp = it.layoutParams
+                lp.height = (210 * density).toInt()
+                it.layoutParams = lp
+            }
+            scroll?.let {
+                val lp = it.layoutParams
+                lp.height = (154 * density).toInt()
+                it.layoutParams = lp
+                it.setOnScrollChangeListener { _, _, scrollY, _, _ ->
+                    divider?.visibility = if (scrollY > 0) View.VISIBLE else View.GONE
+                    fade?.visibility = if (scroll.canScrollVertically(1)) View.VISIBLE else View.GONE
+                }
+            }
+            divider?.visibility = if ((scroll?.scrollY ?: 0) > 0) View.VISIBLE else View.GONE
+            fade?.visibility = if (scroll?.canScrollVertically(1) == true) View.VISIBLE else View.GONE
         }
     }
 

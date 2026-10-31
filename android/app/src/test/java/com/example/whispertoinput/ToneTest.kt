@@ -40,6 +40,27 @@ class ToneTest {
     }
 
     @Test
+    fun tonePreviewExtractsFromToneKeywordWithEllipsis() {
+        val prompt = "前面的系統提示文字。\n\n語氣：專業、清楚、有禮，適合工作上的訊息。"
+        assertEquals("…語氣：專業、清楚、有禮，適合工作上的訊息。", TonePreview.of(prompt))
+    }
+
+    @Test
+    fun tonePreviewFallsBackToStartWhenKeywordIsMissing() {
+        val prompt = "自訂提示詞\n  第二行   第三行"
+        assertEquals("自訂提示詞 第二行 第三行", TonePreview.of(prompt))
+    }
+
+    @Test
+    fun builtInTonesHaveDistinctPreviewsStartingWithTone() {
+        val proPreview = TonePreview.of(TonePrompts.PRO)
+        val chatPreview = TonePreview.of(TonePrompts.CHAT)
+        assertTrue(proPreview.startsWith("…語氣：專業、清楚、有禮"))
+        assertTrue(chatPreview.startsWith("…語氣：輕鬆自然的聊天訊息"))
+        org.junit.Assert.assertNotEquals(proPreview, chatPreview)
+    }
+
+    @Test
     fun theDefaultTonesAreProThenChatAndBothBuiltIn() {
         val tones = TonePrompts.defaultTones()
         assertEquals(listOf(TONE_PRO, TONE_CHAT), tones.map { it.id })
