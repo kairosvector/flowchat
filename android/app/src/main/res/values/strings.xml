@@ -84,7 +84,15 @@
     <string name="kb_toast_undone">已復原</string>
     <string name="kb_toast_restored">已還原為原文</string>
     <string name="kb_toast_undo_failed">游標處的文字已改變，未復原</string>
-    <string name="kb_toast_repolish_failed">潤飾失敗，保留原文</string>
+    <string name="kb_err_stage_transcribe">轉寫失敗：%1$s</string>
+    <string name="kb_err_stage_polish">潤飾失敗：%1$s</string>
+    <string name="kb_err_invalid_key">API Key 無效</string>
+    <string name="kb_err_rate_limited">次數超量，請稍後再試</string>
+    <string name="kb_err_server">伺服器錯誤</string>
+    <string name="kb_err_timeout">連線逾時</string>
+    <string name="kb_err_offline">沒有網路</string>
+    <string name="kb_err_http_code">發生錯誤（代碼 %1$d）</string>
+    <string name="kb_err_other">發生錯誤</string>
     <string name="kb_switch_ime_picker_hint">長按選擇輸入法</string>
     <string name="kb_insert_last">插入上次結果</string>
     <string name="kb_polish">AI 潤飾</string>

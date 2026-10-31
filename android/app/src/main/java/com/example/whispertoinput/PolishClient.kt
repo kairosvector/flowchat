@@ -166,10 +166,14 @@ object PolishClient {
 
     private const val TAG = "PolishClient"
 
-    /** Outcome of one polish call; [Failed.reason] never contains the API key. */
+    /**
+     * Outcome of one polish call; [Failed.reason] never contains the API key.
+     * [Failed.error] is the short status-bar sentence (HTTP code / timeout /
+     * no network / other), never the response body.
+     */
     sealed class Result {
         data class Ok(val text: String) : Result()
-        data class Failed(val reason: String) : Result()
+        data class Failed(val reason: String, val error: ErrorText) : Result()
     }
 
     /**
@@ -228,7 +232,10 @@ object PolishClient {
                 val elapsed = System.currentTimeMillis() - started
                 val text = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
-                    return fail("HTTP ${response.code} after ${elapsed}ms (${errorSummary(text)})")
+                    return fail(
+                        "HTTP ${response.code} after ${elapsed}ms (${errorSummary(text)})",
+                        ErrorMessageMapper.fromHttp(ErrorStage.POLISH, response.code)
+                    )
                 }
                 val content = JSONObject(text)
                     .optJSONArray("choices")
@@ -247,17 +254,20 @@ object PolishClient {
             }
         } catch (e: java.io.InterruptedIOException) {
             // Includes SocketTimeoutException (connect / read timeout).
-            fail("timeout (${e.javaClass.simpleName})")
+            fail("timeout (${e.javaClass.simpleName})", ErrorMessageMapper.fromThrowable(ErrorStage.POLISH, e))
         } catch (e: java.util.concurrent.CancellationException) {
             throw e
         } catch (e: Exception) {
-            fail("exception ${e.javaClass.simpleName}")
+            fail("exception ${e.javaClass.simpleName}", ErrorMessageMapper.fromThrowable(ErrorStage.POLISH, e))
         }
     }
 
-    private fun fail(reason: String): Result.Failed {
+    private fun fail(
+        reason: String,
+        error: ErrorText = ErrorMessageMapper.other(ErrorStage.POLISH)
+    ): Result.Failed {
         Log.w(TAG, "polish failed: $reason")
-        return Result.Failed(reason)
+        return Result.Failed(reason, error)
     }
 
     /** The error type / code of an OpenAI-style error body, never the whole body. */

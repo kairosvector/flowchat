@@ -66,14 +66,14 @@ class WhisperInputService : InputMethodService() {
     private var isFirstTime: Boolean = true
 
     private fun transcriptionCallback(
-        text: String?, raw: String?, polished: String?, note: PolishNote
+        text: String?, raw: String?, polished: String?, note: PolishNote, polishError: String?
     ) {
         if (!text.isNullOrEmpty()) {
             currentInputConnection?.commitText(text, 1)
             // Fork6: the panel switches to the result card (raw vs polished
             // exactly as the transcriber produced them) and remembers the
             // inserted text so "undo" can delete it again.
-            whisperKeyboard.showResult(raw ?: text.trim(), polished, text, note)
+            whisperKeyboard.showResult(raw ?: text.trim(), polished, text, note, polishError)
             // Check if auto-switch-back is enabled and switch if so
             CoroutineScope(Dispatchers.Main).launch {
                 val autoSwitchBack = dataStore.data.map { preferences: Preferences ->
@@ -288,7 +288,9 @@ class WhisperInputService : InputMethodService() {
             recordedAudioFilename,
             audioMediaType,
             attachToEnd,
-            { text, raw, polished, note -> transcriptionCallback(text, raw, polished, note) },
+            { text, raw, polished, note, polishError ->
+                transcriptionCallback(text, raw, polished, note, polishError)
+            },
             { transcriptionExceptionCallback(it) },
             { stage, text -> onPolishStage(stage, text) })
     }

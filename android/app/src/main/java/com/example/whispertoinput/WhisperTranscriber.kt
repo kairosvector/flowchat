@@ -84,7 +84,8 @@ class WhisperTranscriber {
         val textWithAttach: String,
         val rawCore: String,
         val polishedCore: String?,
-        val polishNote: PolishNote
+        val polishNote: PolishNote,
+        val polishError: ErrorText?
     )
 
     private val TAG = "WhisperTranscriber"
@@ -95,7 +96,7 @@ class WhisperTranscriber {
         filename: String,
         mediaType: String,
         attachToEnd: String,
-        callback: (text: String?, raw: String?, polished: String?, note: PolishNote) -> Unit,
+        callback: (text: String?, raw: String?, polished: String?, note: PolishNote, polishError: String?) -> Unit,
         exceptionCallback: (String) -> Unit,
         stageCallback: ((PolishStage, String?) -> Unit)? = null
     ) {
@@ -124,7 +125,7 @@ class WhisperTranscriber {
 
             // Foolproof message
             if (endpoint == "") {
-                throw Exception(context.getString(R.string.error_endpoint_unset))
+                throw SettingsMissingException(context.getString(R.string.error_endpoint_unset))
             }
 
             // Make request
@@ -142,8 +143,11 @@ class WhisperTranscriber {
             val response = client.newCall(request).execute()
 
             // If request is not successful, or response code is weird
+            // Only the status code is kept: the body is dropped unread.
             if (!response.isSuccessful || response.code / 100 != 2) {
-                throw Exception(response.body!!.string().replace('\n', ' '))
+                val code = response.code
+                response.close()
+                throw HttpStatusException(code)
             }
 
             var rawText = response.body!!.string().trim()
@@ -172,11 +176,12 @@ class WhisperTranscriber {
             stageCallback?.invoke(PolishStage.RAW, trimmedCore)
             var polishedCore: String? = null
             var polishNote = PolishNote.OFF
+            var polishError: ErrorText? = null
             val countedChars = countPolishChars(trimmedCore)
             if (polishEnabled && countedChars >= POLISH_MIN_COUNTED_CHARS) {
                 stageCallback?.invoke(PolishStage.POLISHING, null)
                 val llmKey = llmApiKey.ifBlank { apiKey }
-                polishedCore = PolishClient.polish(
+                val polishResult = PolishClient.polishDetailed(
                     trimmedCore,
                     PolishConfig(
                         enabled = true,
@@ -186,7 +191,16 @@ class WhisperTranscriber {
                         prompt = llmPrompt
                     )
                 )
-                polishNote = if (polishedCore != null) PolishNote.OK else PolishNote.FAILED
+                when (polishResult) {
+                    is PolishClient.Result.Ok -> {
+                        polishedCore = polishResult.text
+                        polishNote = PolishNote.OK
+                    }
+                    is PolishClient.Result.Failed -> {
+                        polishError = polishResult.error
+                        polishNote = PolishNote.FAILED
+                    }
+                }
             } else if (polishEnabled) {
                 Log.i(
                     TAG,
@@ -202,7 +216,7 @@ class WhisperTranscriber {
                 // Only used for space key and enter key.
                 finalCore + attachToEnd
             }
-            return Outcome(textWithAttach, trimmedCore, polishedCore, polishNote)
+            return Outcome(textWithAttach, trimmedCore, polishedCore, polishNote, polishError)
         }
 
         // Create a cancellable job in the main thread (for UI updating)
@@ -210,8 +224,8 @@ class WhisperTranscriber {
 
             // Within the job, make a suspend call at the I/O thread
             // It suspends before result is obtained.
-            // Returns (transcribed string, exception message)
-            val (outcome, exceptionMessage) = withContext(Dispatchers.IO) {
+            // Returns (outcome, the exception that ended the request)
+            val (outcome, failure) = withContext(Dispatchers.IO) {
                 try {
                     // Perform transcription (and polish, if applicable) here.
                     val outcome = makeWhisperRequest()
@@ -226,12 +240,12 @@ class WhisperTranscriber {
                     // Clean up unused audio file after transcription
                     // Ref: https://developer.android.com/reference/android/media/MediaRecorder#setOutputFile(java.io.File)
                     File(filename).delete()
-                    return@withContext Pair<Outcome?, String?>(outcome, null)
+                    return@withContext Pair<Outcome?, Exception?>(outcome, null)
                 } catch (e: CancellationException) {
                     // Task was canceled
-                    return@withContext Pair<Outcome?, String?>(null, null)
+                    return@withContext Pair<Outcome?, Exception?>(null, null)
                 } catch (e: Exception) {
-                    return@withContext Pair<Outcome?, String?>(null, e.message)
+                    return@withContext Pair<Outcome?, Exception?>(null, e)
                 }
             }
 
@@ -242,13 +256,23 @@ class WhisperTranscriber {
                 outcome?.textWithAttach,
                 outcome?.rawCore,
                 outcome?.polishedCore,
-                outcome?.polishNote ?: PolishNote.OFF
+                outcome?.polishNote ?: PolishNote.OFF,
+                outcome?.polishError?.resolve(context)
             )
 
-            // If exception message is not null
-            if (!exceptionMessage.isNullOrEmpty()) {
-                Log.e(TAG, exceptionMessage)
-                exceptionCallback(exceptionMessage)
+            // A short sentence for the status bar. The exception message
+            // (which could hold a response body) is never shown or logged;
+            // only the missing-setting hints are already short and are kept.
+            if (failure != null) {
+                Log.e(TAG, ErrorMessageMapper.logLine(ErrorStage.TRANSCRIBE, failure))
+                val hint = (failure as? SettingsMissingException)?.message
+                exceptionCallback(
+                    if (!hint.isNullOrEmpty()) {
+                        hint
+                    } else {
+                        ErrorMessageMapper.fromThrowable(ErrorStage.TRANSCRIBE, failure).resolve(context)
+                    }
+                )
             }
         }
 
@@ -261,17 +285,18 @@ class WhisperTranscriber {
      * normal pipeline but ignores the on/off switch and the short-text
      * threshold, because the user asked for it explicitly. [callback]
      * runs on the main thread with the polished text, or null when
-     * polishing failed or was cancelled. On success the last record is
+     * polishing failed or was cancelled; on failure the second argument
+     * is the short status sentence ("潤飾失敗：…"). On success the last record is
      * updated, so the keyboard and the history keep agreeing.
      * Cancel with [stop], like a normal transcription.
      */
-    fun polishAsync(context: Context, rawText: String, callback: (String?) -> Unit) {
+    fun polishAsync(context: Context, rawText: String, callback: (String?, String?) -> Unit) {
         val job = CoroutineScope(Dispatchers.Main).launch {
-            val polished = withContext(Dispatchers.IO) {
+            val (polished, error) = withContext(Dispatchers.IO) {
                 try {
                     val prefs = context.dataStore.data.first()
                     val sttKey = prefs[API_KEY] ?: ""
-                    val polished = PolishClient.polish(
+                    val result = PolishClient.polishDetailed(
                         rawText,
                         PolishConfig(
                             enabled = true,
@@ -281,17 +306,21 @@ class WhisperTranscriber {
                             prompt = prefs[LLM_PROMPT] ?: DEFAULT_POLISH_PROMPT
                         )
                     )
-                    if (polished != null) {
-                        TranscriptionHistory.add(context, rawText, polished)
+                    when (result) {
+                        is PolishClient.Result.Ok -> {
+                            TranscriptionHistory.add(context, rawText, result.text)
+                            Pair<String?, ErrorText?>(result.text, null)
+                        }
+                        is PolishClient.Result.Failed -> Pair<String?, ErrorText?>(null, result.error)
                     }
-                    polished
                 } catch (e: CancellationException) {
                     throw e
-                } catch (_: Exception) {
-                    null
+                } catch (e: Exception) {
+                    Log.e(TAG, ErrorMessageMapper.logLine(ErrorStage.POLISH, e))
+                    Pair<String?, ErrorText?>(null, ErrorMessageMapper.fromThrowable(ErrorStage.POLISH, e))
                 }
             }
-            callback(polished)
+            callback(polished, error?.resolve(context))
         }
         registerTranscriptionJob(job)
     }
@@ -377,7 +406,7 @@ class WhisperTranscriber {
             if (speechToTextBackend == context.getString(R.string.settings_option_openai_api)) {
                 // Foolproof message
                 if (apiKey == "") {
-                    throw Exception(context.getString(R.string.error_apikey_unset))
+                    throw SettingsMissingException(context.getString(R.string.error_apikey_unset))
                 }
                 add("Authorization", "Bearer $apiKey")
             }

@@ -49,6 +49,8 @@ import androidx.core.math.MathUtils
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.datastore.preferences.core.edit
+import com.example.whispertoinput.ErrorMessageMapper
+import com.example.whispertoinput.ErrorStage
 import com.example.whispertoinput.LANGUAGE_CODE
 import com.example.whispertoinput.LanguageSettings
 import com.example.whispertoinput.PolishNote
@@ -129,7 +131,8 @@ class WhisperKeyboard {
     // Swaps the text before the cursor for another one (only if it still
     // matches); false = nothing was changed.
     private var onReplaceInserted: (old: String, new: String) -> Boolean = { _, _ -> false }
-    private var onRepolish: (raw: String, done: (String?) -> Unit) -> Unit = { _, done -> done(null) }
+    private var onRepolish: (raw: String, done: (polished: String?, error: String?) -> Unit) -> Unit =
+        { _, done -> done(null, null) }
 
     // ---- state ----
     private var state: UiState = UiState.Idle
@@ -285,7 +288,8 @@ class WhisperKeyboard {
         onInsertText: (String) -> Unit = { },
         onUndoInsert: (String) -> Boolean = { false },
         onReplaceInserted: (old: String, new: String) -> Boolean = { _, _ -> false },
-        onRepolish: (raw: String, done: (String?) -> Unit) -> Unit = { _, done -> done(null) },
+        onRepolish: (raw: String, done: (polished: String?, error: String?) -> Unit) -> Unit =
+            { _, done -> done(null, null) },
     ): View {
         val root = layoutInflater.inflate(R.layout.keyboard_view, null)
         keyboardView = root
@@ -466,7 +470,13 @@ class WhisperKeyboard {
      * transcriber (not read back from the history file, which may have
      * failed to save); [insertedText] is what "undo" will delete again.
      */
-    fun showResult(raw: String, polished: String?, insertedText: String?, note: PolishNote) {
+    fun showResult(
+        raw: String,
+        polished: String?,
+        insertedText: String?,
+        note: PolishNote,
+        polishError: String? = null
+    ) {
         rawResultText = raw
         polishedResultText = polished?.takeIf { it.isNotEmpty() }
         polishNote = note
@@ -486,7 +496,7 @@ class WhisperKeyboard {
         if (inserted != null && ctx != null) {
             showStatus(ctx.getString(R.string.kb_action_inserted), 2000L)
         } else if (note == PolishNote.FAILED && ctx != null) {
-            showStatus(ctx.getString(R.string.kb_toast_repolish_failed), 2000L)
+            showStatus(polishError ?: ErrorMessageMapper.other(ErrorStage.POLISH).resolve(ctx), 2000L)
         }
     }
 
@@ -1263,7 +1273,7 @@ class WhisperKeyboard {
         repolishing = true
         stagedRaw = raw
         setState(UiState.Processing)
-        onRepolish(raw) { polished ->
+        onRepolish(raw) { polished, error ->
             // Ignore a late answer after the user cancelled or left.
             if (state != UiState.Processing || !repolishing) return@onRepolish
             repolishing = false
@@ -1272,9 +1282,10 @@ class WhisperKeyboard {
                 if (polishedResultText.isNullOrEmpty()) {
                     // Still nothing polished: keep saying so on the card.
                     polishNote = PolishNote.FAILED
-                } else {
-                    val context = keyboardView?.context
-                    if (context != null) showStatus(context.getString(R.string.kb_toast_repolish_failed), 2000L)
+                }
+                val context = keyboardView?.context
+                if (context != null) {
+                    showStatus(error ?: ErrorMessageMapper.other(ErrorStage.POLISH).resolve(context), 2000L)
                 }
             } else {
                 polishedResultText = polished
