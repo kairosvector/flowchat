@@ -1,24 +1,5 @@
-<resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
-    <style name="Base.Theme.WhisperToInput" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your dark theme here. -->
-        <!-- <item name="colorPrimary">@color/my_dark_primary</item> -->
-    </style>
-
-    <style name="RegularImage">
-        <item name="android:tint">#AAA</item>
-    </style>
-
-    <style name="RegularText">
-        <item name="android:textColor">#AAA</item>
-    </style>
-
-    <style name="Background">
-        <item name="android:background">#373737</item>
-    </style>
-
-    <style name="TopBar">
-        <item name="android:background">#AAAAAA</item>
-    </style>
-
+<resources>
+    <!-- Fork6 round 6: intentionally empty. The app theme is defined once in
+         values/themes.xml; its colours are the kb_colors.xml tokens, which
+         have their own night variants (values-night/kb_colors.xml). -->
 </resources>

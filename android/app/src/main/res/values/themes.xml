@@ -1,53 +1,56 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
+    <!-- Fork6 round 6: the settings page uses the same colour tokens as the
+         keyboard (kb_colors.xml, light and night). The tokens switch with the
+         night qualifier, so this one definition serves both themes. No
+         dynamic colour: settings and keyboard share one palette. -->
     <style name="Base.Theme.WhisperToInput" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your light theme here. -->
-        <!-- <item name="colorPrimary">@color/my_light_primary</item> -->
+        <item name="colorPrimary">@color/kb_primary</item>
+        <item name="colorOnPrimary">@color/kb_on_primary</item>
+        <item name="colorPrimaryContainer">@color/kb_primary_container</item>
+        <item name="colorOnPrimaryContainer">@color/kb_on_primary_container</item>
+        <item name="colorSecondary">@color/kb_primary</item>
+        <item name="colorOnSecondary">@color/kb_on_primary</item>
+        <item name="colorSecondaryContainer">@color/kb_key_alt</item>
+        <item name="colorOnSecondaryContainer">@color/kb_on_surface</item>
+        <item name="colorTertiary">@color/kb_tertiary</item>
+        <item name="colorOnTertiary">@color/kb_on_tertiary</item>
+        <item name="colorTertiaryContainer">@color/kb_tertiary_container</item>
+        <item name="colorOnTertiaryContainer">@color/kb_on_tertiary_container</item>
+        <item name="colorError">@color/kb_recording</item>
+        <item name="colorOnError">@color/kb_on_recording</item>
+        <item name="colorErrorContainer">@color/kb_recording_container</item>
+        <item name="colorOnErrorContainer">@color/kb_on_surface</item>
+        <item name="android:colorBackground">@color/kb_background</item>
+        <item name="colorSurface">@color/kb_card</item>
+        <item name="colorOnSurface">@color/kb_on_surface</item>
+        <item name="colorSurfaceVariant">@color/kb_key_alt</item>
+        <item name="colorOnSurfaceVariant">@color/kb_on_surface_variant</item>
+        <item name="colorOutline">@color/kb_outline</item>
+        <item name="colorOutlineVariant">@color/kb_outline</item>
+        <item name="colorSurfaceContainerLowest">@color/kb_card</item>
+        <item name="colorSurfaceContainerLow">@color/kb_card</item>
+        <item name="colorSurfaceContainer">@color/kb_card</item>
+        <item name="colorSurfaceContainerHigh">@color/kb_key_alt</item>
+        <item name="colorSurfaceContainerHighest">@color/kb_key_alt</item>
+        <item name="colorSurfaceInverse">@color/kb_on_surface</item>
+        <item name="colorOnSurfaceInverse">@color/kb_background</item>
+        <item name="colorPrimaryInverse">@color/kb_inverse_primary</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">@color/kb_background</item>
     </style>
 
-    <style name="RegularImage">
-        <item name="android:tint">@color/theme_rich_black</item>
-    </style>
 
-    <style name="RegularText">
-        <item name="android:textColor">@color/theme_rich_black</item>
-    </style>
 
-    <style name="Background">
-        <item name="android:background">@color/theme_light_grey</item>
-    </style>
 
-    <style name="TopBar">
-        <item name="android:background">@color/theme_rich_black</item>
-    </style>
 
     <!-- Settings Page Styles -->
-    <style name="SettingsLabel">
-        <item name="android:layout_width">wrap_content</item>
-        <item name="android:layout_height">wrap_content</item>
-        <item name="android:fontFamily">sans-serif</item>
-        <item name="android:textSize">22sp</item>
-        <item name="android:textStyle">bold</item>
-    </style>
-    <style name="SettingsDescription">
-        <item name="android:layout_width">wrap_content</item>
-        <item name="android:layout_height">wrap_content</item>
-        <item name="android:textColor">@color/dark_gray</item>
-        <item name="android:textSize">18sp</item>
-        <item name="android:textStyle">italic</item>
-    </style>
-    <style name="SettingsField">
-        <item name="android:layout_width">match_parent</item>
-        <item name="android:layout_height">wrap_content</item>
-        <item name="android:layout_marginBottom">16dp</item>
-        <item name="android:inputType">textMultiLine</item>
-    </style>
-    <style name="SettingsSpinner">
-        <item name="android:layout_width">wrap_content</item>
-        <item name="android:layout_height">wrap_content</item>
-        <item name="android:layout_marginBottom">16dp</item>
-        <item name="android:minHeight">48dp</item>
-    </style>
 
     <style name="Theme.WhisperToInput" parent="Base.Theme.WhisperToInput" />
+
+    <!-- Fully rounded group (toggle group of the settings page, 48dp high). -->
+    <style name="ShapeAppearance.Whisper.Pill" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">24dp</item>
+    </style>
 </resources>

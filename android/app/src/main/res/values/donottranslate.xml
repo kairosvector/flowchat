@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Fork6 round 6: values that are STORED in the settings DataStore or
+     compared against stored values (WhisperTranscriber, WhisperInputService,
+     the settings page). They must never be translated: translating one would
+     make every saved setting stop matching. The settings page shows its own
+     translated labels (st_*) and keeps a stored value <-> label mapping. -->
+<resources>
+    <string name="settings_option_openai_api" translatable="false">OpenAI API</string>
+    <string name="settings_option_openai_api_default_endpoint" translatable="false">https://api.groq.com/openai/v1/audio/transcriptions</string>
+    <string name="settings_option_openai_api_default_model" translatable="false">whisper-large-v3-turbo</string>
+    <string name="settings_option_openai_api_default_language" translatable="false">auto</string>
+    <string name="settings_option_whisper_asr_webservice" translatable="false">Whisper ASR Webservice</string>
+    <string name="settings_option_whisper_asr_webservice_default_endpoint" translatable="false">http://localhost:9000/asr</string>
+    <string name="settings_option_whisper_asr_webservice_default_model" translatable="false"></string>
+    <string name="settings_option_nvidia_nim" translatable="false">NVIDIA NIM</string>
+    <string name="settings_option_nvidia_nim_default_endpoint" translatable="false">http://localhost:9000/v1/audio/transcriptions</string>
+    <string name="settings_option_nvidia_nim_default_model" translatable="false"></string>
+    <string name="settings_option_nvidia_nim_default_language" translatable="false">multi</string>
+    <string name="settings_option_to_traditional" translatable="false">Convert to Traditional Chinese</string>
+    <string name="settings_option_to_simplified" translatable="false">Convert to Simplified Chinese</string>
+    <string name="settings_option_no_conversion" translatable="false">No Conversion</string>
+    <string name="settings_llm_endpoint_default" translatable="false">https://api.groq.com/openai/v1/chat/completions</string>
+    <string name="settings_llm_model_default" translatable="false">qwen/qwen3.8-27b</string>
+</resources>

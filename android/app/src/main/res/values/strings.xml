@@ -19,11 +19,6 @@
     <string name="polish_toggle_off">潤飾已關閉，點一下開啟</string>
     <string name="start_speech_to_text">Start speech-to-text.</string>
     <string name="start_transcribing">Start transcribing.</string>
-    <string name="grant_microphone_permission">Grant Microphone Permission</string>
-    <string name="mic_permission_required">Whisper to Input requires microphone permission to work.</string>
-    <string name="notification_permission_required">Whisper to Input requires notification permission to work.</string>
-    <string name="microphone">Microphone</string>
-    <string name="successfully_set">Successfully set!</string>
     <string name="backspace_button_hint">Backspace Button</string>
     <string name="btn_previous_ime_hint">Switch To Previous Input Method</string>
     <string name="generate_logcat">Generate Recent Logcat</string>
@@ -33,102 +28,17 @@
     <string name="error_apikey_unset">Error: OpenAI API Key is not set in settings.</string>
 
     <!-- Settings -->
-    <string name="whisper_to_input_settings_title">Whisper To Input Settings</string>
-    <string name="settings_btn_apply">Apply</string>
-    <string name="settings_speech_to_text_backend">Speech to Text Backend</string>
-    <string name="settings_speech_to_text_backend_desc">Use the official OpenAI API, Whisper ASR Webservice, or NVIDIA NIM backend.</string>
-    <string name="settings_option_openai_api">OpenAI API</string>
     <!-- Fork change (fork2): STT defaults are Groq + Whisper, not
          OpenAI defaults, so a fresh install only needs its API key.
          The backend option is still named "OpenAI API"; only these
          default values changed. -->
-    <string name="settings_option_openai_api_default_endpoint">https://api.groq.com/openai/v1/audio/transcriptions</string>
-    <string name="settings_option_openai_api_default_model">whisper-large-v3-turbo</string>
-    <string name="settings_option_openai_api_default_language">auto</string>
-    <string name="settings_option_whisper_asr_webservice">Whisper ASR Webservice</string>
-    <string name="settings_option_whisper_asr_webservice_default_endpoint">http://localhost:9000/asr</string>
-    <string name="settings_option_whisper_asr_webservice_default_model"></string> <!-- Empty default model -->
-    <string name="settings_option_nvidia_nim">NVIDIA NIM</string>
-    <string name="settings_option_nvidia_nim_default_endpoint">http://localhost:9000/v1/audio/transcriptions</string>
-    <string name="settings_option_nvidia_nim_default_model"></string> <!-- Empty default model -->
-    <string name="settings_option_nvidia_nim_default_language">multi</string> <!-- Empty default language -->
-    <string-array name="settings_speech_to_text_backend_array">
-        <item>@string/settings_option_openai_api</item>
-        <item>@string/settings_option_whisper_asr_webservice</item>
-        <item>@string/settings_option_nvidia_nim</item>
-    </string-array>
-    <string name="settings_endpoint">Endpoint</string>
-    <string name="settings_endpoint_desc">The host and port for the OpenAI API, Whisper ASR Webservice, or NVIDIA NIM endpoint.</string>
-    <string name="settings_endpoint_hint"><![CDATA[e.g., http://<host>:<port>/asr]]></string>
-    <string name="settings_language_code">Language Code</string>
-    <string name="settings_language_code_desc">The language code to be included in the request payload (e.g., en, zh).</string>
-    <string name="settings_language_code_hint">Enter Language Code (e.g., en, zh)</string>
-    <string name="settings_api_key">API Key</string>
-    <string name="settings_api_key_desc">The official OpenAI API Key to be used in requests.</string>
-    <string name="settings_api_key_hint">Enter OpenAI API Key…</string>
-    <string name="settings_model">Model</string>
-    <string name="settings_model_desc">The model to use for transcription (e.g., whisper-1).</string>
-    <string name="settings_model_hint">Enter model name (e.g., whisper-1)</string>
-    <string name="settings_option_yes">Yes</string>
-    <string name="settings_option_no">No</string>
-    <string name="settings_auto_recording_start">Auto Recording Start</string>
-    <string name="settings_auto_recording_start_desc">Whether to automatically start recording upon opening the keyboard.</string>
-    <string-array name="settings_auto_recording_start_array">
-        <item>@string/settings_option_yes</item>
-        <item>@string/settings_option_no</item>
-    </string-array>
-    <string name="settings_auto_switch_back">Auto Switch Back</string>
-    <string name="settings_auto_switch_back_desc">Automatically switch back to the previous keyboard after transcription.</string>
-    <string-array name="settings_auto_switch_back_array">
-        <item>@string/settings_option_yes</item>
-        <item>@string/settings_option_no</item>
-    </string-array>
-    <string name="settings_add_trailing_space">Add Trailing Space</string>
-    <string name="settings_add_trailing_space_desc">Whether to add a trailing space after the transcribed text.</string>
-    <string-array name="settings_add_trailing_space_array">
-        <item>@string/settings_option_yes</item>
-        <item>@string/settings_option_no</item>
-    </string-array>
-    <string name="settings_postprocessing">Postprocessing</string>
-    <string name="settings_postprocessing_desc">Choose how to handle text postprocessing.</string>
-    <string name="settings_option_to_traditional">Convert to Traditional Chinese</string>
-    <string name="settings_option_to_simplified">Convert to Simplified Chinese</string>
-    <string name="settings_option_no_conversion">No Conversion</string>
-    <string-array name="settings_postprocessing_array">
-        <item>@string/settings_option_to_traditional</item>
-        <item>@string/settings_option_to_simplified</item>
-        <item>@string/settings_option_no_conversion</item>
-    </string-array>
     <string name="desc_space_bar">Space Bar</string>
 
     <!-- Fork change: last transcription result on the keyboard panel -->
     <string name="last_result_copied">已複製上次結果</string>
     <string name="copy_last_result_hint">Copy Last Transcription Result</string>
 
-    <!-- Fork change (fork2): LLM polish settings -->
-    <string name="settings_polish_enabled">LLM Polish</string>
-    <string name="settings_polish_enabled_desc">Whether to polish the transcription with an LLM before inserting it. Turn off to always insert the raw transcription.</string>
-    <string name="settings_llm_endpoint">LLM Endpoint</string>
-    <string name="settings_llm_endpoint_desc">Chat completions endpoint used for polishing (Groq by default).</string>
-    <string name="settings_llm_endpoint_hint">https://api.groq.com/openai/v1/chat/completions</string>
-    <string name="settings_llm_endpoint_default">https://api.groq.com/openai/v1/chat/completions</string>
-    <string name="settings_llm_model">LLM Model</string>
-    <string name="settings_llm_model_desc">Model used for polishing. Change this text if the model is rotated out of the free tier.</string>
-    <string name="settings_llm_model_hint">qwen/qwen3.8-27b</string>
-    <string name="settings_llm_model_default">qwen/qwen3.8-27b</string>
-    <string name="settings_llm_api_key">LLM API Key</string>
-    <string name="settings_llm_api_key_desc">Leave blank to reuse the transcription API key above.</string>
-    <string name="settings_llm_api_key_hint">Leave blank to reuse the transcription key</string>
-    <string name="settings_llm_prompt">LLM Polish Prompt</string>
-    <string name="settings_llm_prompt_desc">System prompt used for polishing. Edit it to change how transcripts are cleaned up.</string>
-    <string name="settings_llm_prompt_hint">Polish prompt</string>
 
-    <!-- Fork6: prompt reset button on the settings page -->
-    <string name="settings_llm_prompt_reset">重設為預設</string>
-    <string name="settings_llm_prompt_reset_title">重設潤飾 prompt？</string>
-    <string name="settings_llm_prompt_reset_message">這會用新版預設 prompt 覆蓋目前的內容，並立即儲存。</string>
-    <string name="settings_llm_prompt_reset_confirm">重設</string>
-    <string name="settings_llm_prompt_reset_cancel">取消</string>
 
     <!-- Fork6: redesigned keyboard -->
     <string name="kb_tag_last">上次</string>
@@ -177,4 +87,131 @@
     <string name="kb_toast_repolish_failed">潤飾失敗，保留原文</string>
     <string name="kb_switch_ime_picker_hint">長按選擇輸入法</string>
 
+
+    <!-- ================= Fork6 round 6: settings page (zh-TW) ================= -->
+    <string name="st_title">Whisper Input 設定</string>
+    <string name="st_save_done">已儲存</string>
+    <string name="st_save_skipped">有欄位沒存：%1$s</string>
+    <string name="st_undo">復原</string>
+    <string name="st_cancel">取消</string>
+    <string name="st_reset">重設</string>
+
+    <!-- sections -->
+    <string name="st_section_status">鍵盤狀態</string>
+    <string name="st_section_stt">語音辨識</string>
+    <string name="st_section_ai">AI 潤飾</string>
+    <string name="st_section_behavior">輸入與行為</string>
+    <string name="st_section_about">關於</string>
+
+    <!-- status card -->
+    <string name="st_status_badge_todo">%1$d 項待處理</string>
+    <string name="st_status_badge_ok">可以用了</string>
+    <string name="st_status_all_ok">一切就緒</string>
+    <string name="st_status_all_ok_desc">鍵盤已啟用、權限都正常，到任何輸入框就能用。</string>
+    <string name="st_status_summary_ok">%1$s</string>
+    <string name="st_status_enable_title">鍵盤還沒啟用</string>
+    <string name="st_status_enable_desc">到系統設定打開「Whisper Input」</string>
+    <string name="st_status_enable_action">去啟用</string>
+    <string name="st_status_current_title">還不是目前的鍵盤</string>
+    <string name="st_status_current_desc">目前使用：%1$s</string>
+    <string name="st_status_current_desc_unknown">在輸入框切換到 Whisper Input</string>
+    <string name="st_status_current_action">切換</string>
+    <string name="st_status_mic_title">需要麥克風權限</string>
+    <string name="st_status_mic_desc">沒有麥克風就沒辦法錄音</string>
+    <string name="st_status_mic_action">允許</string>
+    <string name="st_status_ok_enabled">鍵盤已啟用</string>
+    <string name="st_status_ok_current">是目前的鍵盤</string>
+    <string name="st_status_ok_mic">麥克風權限正常</string>
+    <string name="st_status_ok_join">、</string>
+    <string name="st_mic_denied">沒有麥克風權限，就沒辦法錄音</string>
+
+    <!-- speech recognition card -->
+    <string name="st_backend">服務</string>
+    <string name="st_backend_openai">OpenAI 相容 API</string>
+    <string name="st_backend_openai_sub">Groq、OpenAI 等雲端服務</string>
+    <string name="st_backend_asr">Whisper ASR Webservice</string>
+    <string name="st_backend_asr_sub">自己架的伺服器</string>
+    <string name="st_backend_nim">NVIDIA NIM</string>
+    <string name="st_backend_nim_sub">自己架的伺服器</string>
+    <string name="st_backend_host">目前連到 %1$s</string>
+    <string name="st_backend_host_none">還沒有填服務網址</string>
+    <string name="st_backend_switched">已改用 %1$s 的預設網址</string>
+    <string name="st_endpoint">服務網址</string>
+    <string name="st_endpoint_restore">還原預設網址</string>
+    <string name="st_api_key">API Key</string>
+    <string name="st_api_key_stt_helper">AI 潤飾沒填 Key 時也會用這組</string>
+    <string name="st_api_key_show">顯示 API Key</string>
+    <string name="st_api_key_hide">隱藏 API Key</string>
+    <string name="st_model">模型</string>
+    <string name="st_language">辨識語言</string>
+    <string name="st_language_helper">鍵盤上的語言鍵也會切換這個設定</string>
+    <string name="st_language_auto">自動偵測</string>
+    <string name="st_language_zh">中文</string>
+    <string name="st_language_en">英文</string>
+    <string name="st_language_multi">多語（multi）</string>
+    <string name="st_language_other">其他代碼…</string>
+    <string name="st_language_custom">語言代碼</string>
+    <string name="st_advanced">進階</string>
+    <string name="st_advanced_stt_hint">· 服務網址</string>
+    <string name="st_advanced_ai_hint">· 網址、潤飾指令</string>
+    <string name="st_advanced_expand">展開進階設定</string>
+    <string name="st_advanced_collapse">收合進階設定</string>
+
+    <!-- AI polish card -->
+    <string name="st_ai_enable">啟用 AI 潤飾</string>
+    <string name="st_ai_enable_desc">插入前整理贅字、標點和錯字。和鍵盤上的 AI 潤飾鈕是同一個開關</string>
+    <string name="st_ai_model_helper">免費額度的模型下架時，改這裡</string>
+    <string name="st_ai_key">API Key（選填）</string>
+    <string name="st_ai_key_placeholder">沿用語音辨識的 Key</string>
+    <string name="st_ai_key_helper">留空就用語音辨識那組 Key</string>
+    <string name="st_ai_endpoint_helper">需要支援 OpenAI chat completions 格式</string>
+    <string name="st_ai_prompt">潤飾指令</string>
+    <string name="st_ai_prompt_modified">已修改</string>
+    <string name="st_ai_prompt_reset">重設為預設</string>
+    <string name="st_ai_prompt_reset_title">重設潤飾指令？</string>
+    <string name="st_ai_prompt_reset_message">會用預設指令覆蓋你改過的內容，並立即儲存。</string>
+
+    <!-- behavior card -->
+    <string name="st_auto_start">開鍵盤就開始錄音</string>
+    <string name="st_auto_start_desc">切到這個鍵盤時自動開始聽</string>
+    <string name="st_switch_back">插入後切回原本的鍵盤</string>
+    <string name="st_switch_back_desc">文字插入後自動切回</string>
+    <string name="st_trailing_space">結尾加空格</string>
+    <string name="st_trailing_space_desc">文字後面自動補一個空格</string>
+    <string name="st_postprocessing">繁簡轉換</string>
+    <string name="st_postprocessing_desc">轉寫結果的中文字形</string>
+    <string name="st_pp_traditional">轉繁體</string>
+    <string name="st_pp_simplified">轉簡體</string>
+    <string name="st_pp_none">不轉換</string>
+
+    <!-- about card -->
+    <string name="st_about_version">版本</string>
+    <string name="st_about_version_value">%1$s（%2$d）</string>
+    <string name="st_about_data">資料會傳到哪裡</string>
+    <string name="st_about_data_desc">錄音只傳給語音辨識服務，文字只傳給 AI 潤飾服務（你在上面設定的網址）</string>
+    <string name="st_about_source">原始專案</string>
+    <string name="st_about_source_desc">j3soon/whisper-to-input（GPL-3.0）</string>
+
+    <!-- validation errors -->
+    <string name="st_err_url">網址要以 http:// 或 https:// 開頭</string>
+    <string name="st_err_key_required">這個服務需要 API Key</string>
+    <string name="st_err_model">請填模型名稱</string>
+    <string name="st_err_language">語言代碼是 2–3 個英文小寫字母，例如 ja</string>
+    <string name="st_err_prompt">潤飾指令不能空白</string>
+
+    <!-- connection test -->
+    <string name="st_test">測試連線</string>
+    <string name="st_testing">測試中…</string>
+    <string name="st_test_ok_title">連線成功</string>
+    <string name="st_test_ok_detail_model">%1$s 秒 · 找到模型 %2$s</string>
+    <string name="st_test_ok_detail_plain">%1$s 秒 · 服務有回應</string>
+    <string name="st_test_key_title">API Key 無效（%1$d）</string>
+    <string name="st_test_key_detail">請確認 Key 完整、前後沒有空白；修改後會自動儲存，再按一次測試</string>
+    <string name="st_test_model_title">找不到模型 %1$s</string>
+    <string name="st_test_model_detail">可能已經下架，請換一個模型名稱</string>
+    <string name="st_test_net_title">連不到伺服器</string>
+    <string name="st_test_rate_title">請求太頻繁（429）</string>
+    <string name="st_test_rate_detail">稍後再試</string>
+    <string name="st_test_other_title">錯誤 %1$d</string>
+    <string name="st_test_fix_first">先改正有錯誤的欄位</string>
 </resources>
