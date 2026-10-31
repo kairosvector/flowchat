@@ -630,12 +630,12 @@
                 android:orientation="horizontal">
 
                 <LinearLayout
-                    android:id="@+id/action_insert"
+                    android:id="@+id/action_undo"
                     android:layout_width="wrap_content"
                     android:layout_height="48dp"
-                    android:background="@drawable/kb_bg_action_primary_touch"
+                    android:background="@drawable/kb_bg_action_outline_touch"
                     android:clickable="true"
-                    android:contentDescription="@string/kb_action_insert"
+                    android:contentDescription="@string/kb_result_undo"
                     android:focusable="true"
                     android:gravity="center"
                     android:minWidth="78dp"
@@ -644,20 +644,20 @@
                     android:paddingEnd="14dp">
 
                     <ImageView
-                        android:id="@+id/action_insert_icon"
+                        android:id="@+id/action_undo_icon"
                         android:layout_width="16dp"
                         android:layout_height="16dp"
                         android:importantForAccessibility="no"
-                        android:src="@drawable/kb_ic_insert"
-                        android:tint="@color/kb_on_primary" />
+                        android:src="@drawable/kb_ic_undo"
+                        android:tint="@color/kb_on_surface" />
 
                     <TextView
-                        android:id="@+id/action_insert_label"
+                        android:id="@+id/action_undo_label"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="4dp"
-                        android:text="@string/kb_action_insert"
-                        android:textColor="@color/kb_on_primary"
+                        android:text="@string/kb_result_undo"
+                        android:textColor="@color/kb_on_surface"
                         android:textSize="13sp"
                         android:textStyle="bold" />
                 </LinearLayout>
@@ -669,7 +669,7 @@
                     android:layout_marginStart="6dp"
                     android:background="@drawable/kb_bg_action_outline_touch"
                     android:clickable="true"
-                    android:contentDescription="@string/kb_action_repolish"
+                    android:contentDescription="@string/kb_result_repolish"
                     android:focusable="true"
                     android:gravity="center"
                     android:minWidth="102dp"
@@ -689,7 +689,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="4dp"
-                        android:text="@string/kb_action_repolish"
+                        android:text="@string/kb_result_repolish"
                         android:textColor="@color/kb_on_surface"
                         android:textSize="13sp"
                         android:textStyle="bold" />
@@ -714,21 +714,18 @@
                         android:tint="@color/kb_on_surface" />
                 </LinearLayout>
 
-                <!-- Discard (not inserted yet) and undo (inserted) are one view:
-                     only the icon, the description and the action change. -->
                 <LinearLayout
-                    android:id="@+id/action_undo"
+                    android:id="@+id/action_collapse"
                     android:layout_width="48dp"
                     android:layout_height="48dp"
                     android:layout_marginStart="-6dp"
                     android:background="@drawable/kb_bg_action_icon_touch"
                     android:clickable="true"
-                    android:contentDescription="@string/kb_result_discard"
+                    android:contentDescription="@string/kb_result_collapse_cd"
                     android:focusable="true"
                     android:gravity="center">
 
                     <ImageView
-                        android:id="@+id/action_undo_icon"
                         android:layout_width="16dp"
                         android:layout_height="16dp"
                         android:importantForAccessibility="no"

@@ -71,21 +71,25 @@ class WhisperInputService : InputMethodService() {
     ) {
         if (!text.isNullOrEmpty()) {
             val mode = ResultFlow.forNote(note)
-            if (mode == ResultMode.PENDING_CARD) {
-                // Polished: the result card waits for "insert" (SPEC_r8
-                // RESULT_PENDING), nothing is typed into the editor yet.
-                whisperKeyboard.showResult(raw ?: text.trim(), polished, text, note, polishError, toneId)
-            } else if (mode == ResultMode.INSERTED_WITH_RETRY) {
-                // Polishing failed: the original goes in right away (as in
-                // v19) and the card offers the retry that swaps it.
-                currentInputConnection?.commitText(text, 1)
-                whisperKeyboard.showInsertedAfterFailure(raw ?: text.trim(), text, polishError, toneId)
-                switchBackIfWanted()
-            } else {
-                // AI off or a short sentence: no card, the text goes straight in.
-                currentInputConnection?.commitText(text, 1)
-                whisperKeyboard.showDirectInserted()
-                switchBackIfWanted()
+            when (mode) {
+                ResultMode.INSERTED_POLISHED -> {
+                    // Polished OK: text inserted directly, card shown with tone & actions
+                    currentInputConnection?.commitText(text, 1)
+                    whisperKeyboard.showInsertedResult(raw ?: text.trim(), polished ?: text, text, toneId)
+                    switchBackIfWanted()
+                }
+                ResultMode.INSERTED_FAILED_RETRY -> {
+                    // Polishing failed or timed out: raw text inserted directly, card offers retry
+                    currentInputConnection?.commitText(text, 1)
+                    whisperKeyboard.showInsertedAfterFailure(raw ?: text.trim(), text, polishError, toneId)
+                    switchBackIfWanted()
+                }
+                ResultMode.DIRECT_INSERT -> {
+                    // AI off or short sentence: raw text inserted directly, no card
+                    currentInputConnection?.commitText(text, 1)
+                    whisperKeyboard.showDirectInserted()
+                    switchBackIfWanted()
+                }
             }
         } else {
             whisperKeyboard.reset()
@@ -211,7 +215,6 @@ class WhisperInputService : InputMethodService() {
             { onShowInputMethodPicker() },
             { onDeleteWord() },
             { text -> onInsertText(text) },
-            { text, submit -> onInsertResult(text, submit) },
             { inserted -> onUndoInsert(inserted) },
             { old, replacement -> onReplaceInserted(old, replacement) },
             { raw, toneId, done -> whisperTranscriber.polishAsync(this, raw, toneId, done) },
@@ -361,24 +364,6 @@ class WhisperInputService : InputMethodService() {
         currentInputConnection?.commitText(text, 1)
     }
 
-    // The result card's "insert" (and Enter = insert + send, SPEC_r8 §9.2):
-    // type the text; with [submit] run the field's own action (send, go,
-    // search, done, next) or, when it has none, press Enter (a newline).
-    private fun onInsertResult(text: String, submit: Boolean) {
-        val inputConnection = currentInputConnection ?: return
-        inputConnection.commitText(text, 1)
-        if (submit) {
-            val action = EnterAction.editorAction(currentInputEditorInfo?.imeOptions ?: 0)
-            if (action != null) {
-                inputConnection.performEditorAction(action)
-            } else {
-                inputConnection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
-                inputConnection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
-            }
-        }
-        switchBackIfWanted()
-    }
-
     // Only deletes when the text right before the cursor is still exactly
     // what was inserted; otherwise the user has typed or moved on and a
     // blind delete would remove the wrong characters. Returns whether the
@@ -386,9 +371,9 @@ class WhisperInputService : InputMethodService() {
     private fun onUndoInsert(inserted: String): Boolean {
         if (inserted.isEmpty()) return false
         val inputConnection = currentInputConnection ?: return false
-        if (!TextUtils.isEmpty(inputConnection.getSelectedText(0))) return false
-        val before = inputConnection.getTextBeforeCursor(inserted.length, 0)?.toString()
-        if (before != inserted) return false
+        val selected = inputConnection.getSelectedText(0)
+        val before = inputConnection.getTextBeforeCursor(inserted.length, 0)
+        if (!InsertionChecker.canReplaceOrUndo(before, selected, inserted)) return false
         return inputConnection.deleteSurroundingText(inserted.length, 0)
     }
 
@@ -398,9 +383,9 @@ class WhisperInputService : InputMethodService() {
     private fun onReplaceInserted(old: String, replacement: String): Boolean {
         if (old.isEmpty()) return false
         val inputConnection = currentInputConnection ?: return false
-        if (!TextUtils.isEmpty(inputConnection.getSelectedText(0))) return false
-        val before = inputConnection.getTextBeforeCursor(old.length, 0)?.toString()
-        if (before != old) return false
+        val selected = inputConnection.getSelectedText(0)
+        val before = inputConnection.getTextBeforeCursor(old.length, 0)
+        if (!InsertionChecker.canReplaceOrUndo(before, selected, old)) return false
         inputConnection.beginBatchEdit()
         try {
             if (!inputConnection.deleteSurroundingText(old.length, 0)) return false
@@ -500,6 +485,9 @@ class WhisperInputService : InputMethodService() {
 
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
+        if (whisperKeyboard.isProcessing()) {
+            onCancelTranscription()
+        }
         whisperKeyboard.onKeyboardHidden()
     }
 

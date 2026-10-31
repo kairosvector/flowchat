@@ -1,12 +1,11 @@
 package com.example.whispertoinput
 
-import android.view.inputmethod.EditorInfo
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Round 11a: the 20-record history file and the Enter key's field action. */
+/** Round 11a: the 20-record history file. */
 class HistoryAndEnterTest {
     private fun record(n: Int, polished: String? = null) =
         TranscriptionRecord(1000L + n, "raw $n", polished)
@@ -67,36 +66,5 @@ class HistoryAndEnterTest {
         assertEquals(2, again.size)
         assertEquals("polished again", again[0].polishedText)
         assertEquals("raw 1", again[1].rawText)
-    }
-
-    @Test
-    fun sendGoSearchDoneNextRunTheFieldAction() {
-        for (action in listOf(
-            EditorInfo.IME_ACTION_SEND, EditorInfo.IME_ACTION_GO, EditorInfo.IME_ACTION_SEARCH,
-            EditorInfo.IME_ACTION_DONE, EditorInfo.IME_ACTION_NEXT
-        )) {
-            assertEquals(action, EnterAction.editorAction(action))
-            // other flags next to the action do not change the answer
-            assertEquals(action, EnterAction.editorAction(action or EditorInfo.IME_FLAG_NO_EXTRACT_UI))
-        }
-    }
-
-    @Test
-    fun noEnterActionFlagMeansANewline() {
-        val flag = EditorInfo.IME_FLAG_NO_ENTER_ACTION
-        for (action in listOf(
-            EditorInfo.IME_ACTION_SEND, EditorInfo.IME_ACTION_GO, EditorInfo.IME_ACTION_SEARCH,
-            EditorInfo.IME_ACTION_DONE, EditorInfo.IME_ACTION_NEXT
-        )) {
-            assertNull(EnterAction.editorAction(action or flag))
-        }
-    }
-
-    @Test
-    fun noActionOrUnspecifiedOrNoneMeansANewline() {
-        assertNull(EnterAction.editorAction(0))
-        assertNull(EnterAction.editorAction(EditorInfo.IME_ACTION_UNSPECIFIED))
-        assertNull(EnterAction.editorAction(EditorInfo.IME_ACTION_NONE))
-        assertNull(EnterAction.editorAction(EditorInfo.IME_ACTION_PREVIOUS))
     }
 }

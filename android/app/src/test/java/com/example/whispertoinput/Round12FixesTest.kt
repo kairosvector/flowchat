@@ -18,14 +18,14 @@ class Round12FixesTest {
     // ---- what happens to a finished transcription ----
 
     @Test
-    fun aPolishedResultWaitsOnTheCard() {
-        assertEquals(ResultMode.PENDING_CARD, ResultFlow.forNote(PolishNote.OK))
+    fun aPolishedResultIsInsertedDirectlyWithCard() {
+        assertEquals(ResultMode.INSERTED_POLISHED, ResultFlow.forNote(PolishNote.OK))
     }
 
     @Test
     fun aFailedPolishInsertsTheOriginalRightAway() {
-        // v19 behaviour, restored: the original goes in and the card offers the retry
-        assertEquals(ResultMode.INSERTED_WITH_RETRY, ResultFlow.forNote(PolishNote.FAILED))
+        // Round 13 (SPEC_r8 §21): the original goes in and the card offers the retry
+        assertEquals(ResultMode.INSERTED_FAILED_RETRY, ResultFlow.forNote(PolishNote.FAILED))
     }
 
     @Test

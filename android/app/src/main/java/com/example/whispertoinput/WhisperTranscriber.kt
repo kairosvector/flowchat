@@ -58,6 +58,9 @@ enum class PolishNote {
     OK
 }
 
+/** Max time to wait for the LLM polish call before inserting raw text (SPEC_r8 §21.1). */
+const val POLISH_TIMEOUT_MS = 8000L
+
 class WhisperTranscriber {
     private data class Config(
         val endpoint: String,
@@ -194,7 +197,8 @@ class WhisperTranscriber {
                         model = llmModel,
                         apiKey = llmKey,
                         prompt = llmPrompt
-                    )
+                    ),
+                    callTimeoutMs = POLISH_TIMEOUT_MS
                 )
                 when (polishResult) {
                     is PolishClient.Result.Ok -> {
@@ -318,7 +322,8 @@ class WhisperTranscriber {
                             model = prefs[LLM_MODEL] ?: DEFAULT_LLM_MODEL,
                             apiKey = (prefs[LLM_API_KEY] ?: "").ifBlank { sttKey },
                             prompt = (tones.byId(toneId) ?: tones.current ?: tones.tones.first()).prompt
-                        )
+                        ),
+                        callTimeoutMs = POLISH_TIMEOUT_MS
                     )
                     when (result) {
                         is PolishClient.Result.Ok -> {

@@ -191,7 +191,12 @@ object PolishClient {
      * logged under the tag "PolishClient" (HTTP status, exception class,
      * lengths; never the key, the request headers or the text itself).
      */
-    fun polishDetailed(rawText: String, config: PolishConfig): Result {
+    fun polishDetailed(
+        rawText: String,
+        config: PolishConfig,
+        httpClient: OkHttpClient? = null,
+        callTimeoutMs: Long? = null
+    ): Result {
         return try {
             val endpoint = config.endpoint.trim()
             val model = config.model.trim()
@@ -217,9 +222,14 @@ object PolishClient {
             messages.put(user)
             body.put("messages", messages)
 
-            val client = OkHttpClient.Builder()
-                .connectTimeout(30, TimeUnit.SECONDS)
-                .readTimeout(60, TimeUnit.SECONDS)
+            val client = httpClient ?: OkHttpClient.Builder()
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(20, TimeUnit.SECONDS)
+                .apply {
+                    if (callTimeoutMs != null && callTimeoutMs > 0) {
+                        callTimeout(callTimeoutMs, TimeUnit.MILLISECONDS)
+                    }
+                }
                 .build()
             val request = Request.Builder()
                 .url(endpoint)

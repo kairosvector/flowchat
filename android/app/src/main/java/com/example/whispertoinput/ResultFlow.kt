@@ -19,17 +19,16 @@
 
 package com.example.whispertoinput
 
-/** What the keyboard does with a finished transcription. */
+/** What the keyboard does with a finished transcription (round 13, SPEC_r8 §21). */
 enum class ResultMode {
-    /** Polished: the result card waits for "insert" (SPEC_r8 RESULT_PENDING). */
-    PENDING_CARD,
+    /** Polished: text is inserted directly, card is shown with tone and actions. */
+    INSERTED_POLISHED,
 
     /**
-     * Polishing was tried and failed (round 12, Kevy 2026-10-31): the original
-     * goes into the editor right away, as in v19; the card is shown as already
-     * inserted, with the "AI 潤飾失敗 · 重試" notice that can replace the text.
+     * Polishing failed or timed out: the original was inserted directly,
+     * and the card offers the retry that swaps it.
      */
-    INSERTED_WITH_RETRY,
+    INSERTED_FAILED_RETRY,
 
     /** AI off, or a sentence too short to polish: the text goes in, no card. */
     DIRECT_INSERT
@@ -37,8 +36,25 @@ enum class ResultMode {
 
 object ResultFlow {
     fun forNote(note: PolishNote): ResultMode = when (note) {
-        PolishNote.OK -> ResultMode.PENDING_CARD
-        PolishNote.FAILED -> ResultMode.INSERTED_WITH_RETRY
+        PolishNote.OK -> ResultMode.INSERTED_POLISHED
+        PolishNote.FAILED -> ResultMode.INSERTED_FAILED_RETRY
         PolishNote.OFF, PolishNote.TOO_SHORT -> ResultMode.DIRECT_INSERT
+    }
+}
+
+object InsertionChecker {
+    /**
+     * Pure matcher for undo / replace: returns true only if [inserted] is non-empty,
+     * no text is selected, and [textBeforeCursor] ends with [inserted].
+     */
+    fun canReplaceOrUndo(
+        textBeforeCursor: CharSequence?,
+        selectedText: CharSequence?,
+        inserted: String
+    ): Boolean {
+        if (inserted.isEmpty()) return false
+        if (!selectedText.isNullOrEmpty()) return false
+        if (textBeforeCursor == null) return false
+        return textBeforeCursor.endsWith(inserted)
     }
 }

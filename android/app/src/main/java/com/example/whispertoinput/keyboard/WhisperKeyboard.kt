@@ -130,7 +130,6 @@ class WhisperKeyboard {
         Idle,        // Ready to start recording (an error is only a status text on top of this)
         Recording,   // Currently recording
         Processing,  // Waiting for transcription / polishing
-        Pending,     // Result card, NOT inserted yet (locks the tone key and the tabs)
         Inserted,    // Result card, inserted (everything unlocked; undo available)
     }
 
@@ -159,7 +158,6 @@ class WhisperKeyboard {
     private var onInsertText: (String) -> Unit = { }
     // The result card's text into the editor; with submit = true the field's
     // own action (send, go ...) or a newline follows (Enter = insert + send).
-    private var onInsertResult: (text: String, submit: Boolean) -> Unit = { _, _ -> }
     // Returns false when the text before the cursor no longer matches
     // what was inserted, in which case nothing was deleted.
     private var onUndoInsert: (String) -> Boolean = { false }
@@ -179,7 +177,6 @@ class WhisperKeyboard {
     private var showPolishStep: Boolean = true
     private var repolishing: Boolean = false
     // The re-polish was started from the inserted card (after a failure): it returns there.
-    private var repolishFromInserted: Boolean = false
     private var stagedRaw: String? = null
 
     // The result card: what polishing did, the texts, and the space / newline
@@ -329,15 +326,16 @@ class WhisperKeyboard {
     private var buttonNoticeAction: TextView? = null
     private var textRaw: TextView? = null
     private var textAi: TextView? = null
-    private var actionInsertIcon: ImageView? = null
-    private var actionInsertLabel: TextView? = null
-    private var actionInsert: View? = null
-    private var actionRepolish: View? = null
-    private var actionCopy: View? = null
     private var actionUndo: View? = null
     private var actionUndoIcon: ImageView? = null
+    private var actionUndoLabel: TextView? = null
+    private var actionRepolish: View? = null
     private var actionRepolishLabel: TextView? = null
+    private var actionCopy: View? = null
+    private var actionCollapse: View? = null
     private var resultScroll: ScrollView? = null
+    private var isRepolishing: Boolean = false
+    private var repolishShimmerAnimator: ValueAnimator? = null
 
     private var buttonLeftAction: ImageButton? = null
     private var buttonSpaceBar: View? = null
@@ -374,7 +372,6 @@ class WhisperKeyboard {
         onShowInputMethodPicker: () -> Unit = { },
         onButtonBackspaceWord: () -> Unit = { },
         onInsertText: (String) -> Unit = { },
-        onInsertResult: (text: String, submit: Boolean) -> Unit = { _, _ -> },
         onUndoInsert: (String) -> Boolean = { false },
         onReplaceInserted: (old: String, new: String) -> Boolean = { _, _ -> false },
         onRepolish: (raw: String, toneId: String?, done: (polished: String?, error: ErrorDisplay?) -> Unit) -> Unit =
@@ -425,14 +422,13 @@ class WhisperKeyboard {
         buttonNoticeAction = root.findViewById(R.id.btn_notice_action)
         textRaw = root.findViewById(R.id.text_raw)
         textAi = root.findViewById(R.id.text_ai)
-        actionInsertIcon = root.findViewById(R.id.action_insert_icon)
-        actionInsertLabel = root.findViewById(R.id.action_insert_label)
-        actionInsert = root.findViewById(R.id.action_insert)
+        actionUndo = root.findViewById(R.id.action_undo)
+        actionUndoIcon = root.findViewById(R.id.action_undo_icon)
+        actionUndoLabel = root.findViewById(R.id.action_undo_label)
         actionRepolish = root.findViewById(R.id.action_repolish)
         actionRepolishLabel = root.findViewById(R.id.action_repolish_label)
         actionCopy = root.findViewById(R.id.action_copy)
-        actionUndo = root.findViewById(R.id.action_undo)
-        actionUndoIcon = root.findViewById(R.id.action_undo_icon)
+        actionCollapse = root.findViewById(R.id.action_collapse)
         resultScroll = root.findViewById(R.id.result_scroll)
 
         buttonLeftAction = root.findViewById(R.id.btn_left_action)
@@ -467,7 +463,6 @@ class WhisperKeyboard {
         this.onSpaceBar = onSpaceBar
         this.shouldShowRetry = shouldShowRetry
         this.onInsertText = onInsertText
-        this.onInsertResult = onInsertResult
         this.onUndoInsert = onUndoInsert
         this.onReplaceInserted = onReplaceInserted
         this.onRepolish = onRepolish
@@ -504,13 +499,10 @@ class WhisperKeyboard {
         promptEdit!!.setOnClickListener { onPromptEdit() }
         buttonLanguage!!.setOnClickListener { onLanguageClick() }
         buttonRetry!!.setOnClickListener { onButtonRetryClick() }
-        actionInsert!!.setOnClickListener { onActionInsert() }
+        actionUndo!!.setOnClickListener { onActionUndo() }
         actionRepolish!!.setOnClickListener { onActionRepolish() }
-        actionCopy!!.setOnClickListener {
-            haptic(it, HapticFeedbackConstants.KEYBOARD_TAP)
-            copyText(resultCore)
-        }
-        actionUndo!!.setOnClickListener { onActionUndoOrDiscard() }
+        actionCopy!!.setOnClickListener { onActionCopy() }
+        actionCollapse!!.setOnClickListener { onActionCollapse() }
         // Retry the polish only (the recording is not repeated).
         buttonNoticeAction!!.setOnClickListener { onActionRepolish() }
 
@@ -527,7 +519,6 @@ class WhisperKeyboard {
     fun reset() {
         handler.removeCallbacks(ticker)
         repolishing = false
-        repolishFromInserted = false
         stagedRaw = null
         insertedText = null
         // A result that was never inserted is dropped when the keyboard
@@ -588,39 +579,30 @@ class WhisperKeyboard {
         handler.postDelayed(clearErrorRunnable, durationMs)
     }
 
+    fun isProcessing(): Boolean = state == UiState.Processing || isRepolishing
+
     /**
-     * A polished (or failed-to-polish) transcription is ready but NOT in the
-     * editor yet: the card waits for "insert" (SPEC_r8 RESULT_PENDING).
-     * [textWithAttach] is the core text plus the suffix of the space / enter
-     * key the recording ended with.
+     * Polished successfully and inserted into the editor directly (SPEC_r8 §21).
+     * Card is shown as INSERTED with tone tag, raw row and action buttons.
      */
-    fun showResult(
+    fun showInsertedResult(
         raw: String,
-        polished: String?,
-        textWithAttach: String?,
-        note: PolishNote,
-        polishError: ErrorDisplay? = null,
+        polished: String,
+        textWithAttach: String,
         toneId: String? = null
     ) {
         cardToneId = toneId
         rawResultText = raw
-        polishedResultText = polished?.takeIf { it.isNotEmpty() }
-        polishNote = note
-        val core = resultCore.orEmpty()
-        pendingSuffix = textWithAttach?.takeIf { it.startsWith(core) }?.substring(core.length).orEmpty()
-        insertedText = null
+        polishedResultText = polished
+        polishNote = PolishNote.OK
+        pendingSuffix = textWithAttach.takeIf { it.startsWith(polished) }?.substring(polished.length).orEmpty()
+        insertedText = textWithAttach
         repolishing = false
         stagedRaw = null
         tab = Tab.Voice
         resultScroll?.scrollTo(0, 0)
-        setState(UiState.Pending)
-        val ctx = keyboardView?.context
-        if (note == PolishNote.FAILED && ctx != null) {
-            // The raw text waits on the card; say why polishing failed
-            // (the card shows "AI 潤飾失敗 · 重試").
-            val shown = polishError ?: ErrorMessageMapper.other(ErrorStage.POLISH).display(ctx)
-            showStatus(shown.text, POLISH_ERROR_STATUS_MS, shown.detail)
-        }
+        setState(UiState.Inserted)
+        showStatus(R.string.kb_status_inserted, 2000L)
     }
 
     /**
@@ -641,7 +623,6 @@ class WhisperKeyboard {
         pendingSuffix = textWithAttach.takeIf { it.startsWith(raw) }?.substring(raw.length).orEmpty()
         insertedText = textWithAttach
         repolishing = false
-        repolishFromInserted = false
         stagedRaw = null
         tab = Tab.Voice
         resultScroll?.scrollTo(0, 0)
@@ -660,7 +641,7 @@ class WhisperKeyboard {
         stagedRaw = null
         tab = Tab.Voice
         setState(UiState.Idle)
-        showStatus(R.string.kb_action_inserted, 2000L)
+        showStatus(R.string.kb_status_inserted, 2000L)
     }
 
     /** Stage 1: STT finished, show the raw text in the preview chip. */
@@ -771,6 +752,11 @@ class WhisperKeyboard {
     /** INSERTED -> IDLE: the card is put away (typing in the editor, switching tabs ...). */
     private fun collapseInserted() {
         if (state != UiState.Inserted) return
+        if (isRepolishing) {
+            stopRepolishShimmer()
+            isRepolishing = false
+            onCancelTranscribing()
+        }
         insertedText = null
         rawResultText = null
         polishedResultText = null
@@ -803,7 +789,7 @@ class WhisperKeyboard {
         val view = keyboardView ?: return
         val context = view.context
         val s = state
-        val showCard = s == UiState.Pending || s == UiState.Inserted
+        val showCard = s == UiState.Inserted
         val showClip = tab == Tab.Clip && !showCard
 
         // The tone key is locked in some states: an open menu goes with it.
@@ -881,7 +867,7 @@ class WhisperKeyboard {
 
         when (s) {
             UiState.Idle, UiState.Inserted -> {
-                setKeyEnabled(tone, true)
+                setKeyEnabled(tone, !isRepolishing)
                 setKeyEnabled(backspace, true)
             }
             UiState.Recording -> {
@@ -892,11 +878,6 @@ class WhisperKeyboard {
             UiState.Processing -> {
                 setKeyEnabled(tone, false)
                 setKeyEnabled(backspace, false)
-            }
-            UiState.Pending -> {
-                // The card's tone is already decided: change it after inserting or discarding.
-                setKeyEnabled(tone, false)
-                setKeyEnabled(backspace, true)
             }
         }
         // The prompt viewer covers the keyboard: tabs and backspace wait.
@@ -923,8 +904,9 @@ class WhisperKeyboard {
             processingStep == ProcessingStep.Polishing -> context.getString(R.string.kb_step_polishing)
             else -> context.getString(R.string.kb_step_transcribing)
         }
-        val defaultText = when (state) {
-            UiState.Pending -> context.getString(R.string.kb_result_hint_insert)
+        val defaultText = when {
+            state == UiState.Inserted && polishNote == PolishNote.FAILED ->
+                context.getString(R.string.kb_status_inserted_raw)
             else -> ""
         }
 
@@ -968,7 +950,7 @@ class WhisperKeyboard {
     private fun renderMic(context: Context, s: UiState) {
         val mic = buttonMic ?: return
         when (s) {
-            UiState.Idle, UiState.Pending, UiState.Inserted -> {
+            UiState.Idle, UiState.Inserted -> {
                 mic.setBackgroundResource(R.drawable.kb_bg_mic_idle)
                 mic.scaleType = ImageView.ScaleType.FIT_CENTER
                 mic.setImageResource(R.drawable.kb_ic_mic)
@@ -1057,7 +1039,7 @@ class WhisperKeyboard {
                 renderStepChips(context)
             }
 
-            UiState.Pending, UiState.Inserted -> {
+            UiState.Inserted -> {
                 hint.visibility = View.GONE
                 steps.visibility = View.GONE
             }
@@ -1118,7 +1100,7 @@ class WhisperKeyboard {
                 left.contentDescription = context.getString(R.string.kb_cancel)
             }
 
-            UiState.Pending, UiState.Inserted -> {
+            UiState.Inserted -> {
                 left.visibility = View.VISIBLE
                 left.setBackgroundResource(R.drawable.kb_bg_key_primary)
                 left.setImageResource(R.drawable.kb_ic_mic)
@@ -1148,7 +1130,6 @@ class WhisperKeyboard {
     }
 
     private fun renderResultCard(context: Context) {
-        val inserted = state == UiState.Inserted
         val raw = rawResultText.orEmpty()
         val polished = polishedResultText
         val hasPolished = !polished.isNullOrEmpty()
@@ -1163,7 +1144,7 @@ class WhisperKeyboard {
             )
         }
         textRaw?.let {
-            it.text = if (hasPolished) {
+            it.text = if (hasPolished || failed) {
                 tagged(context, context.getString(R.string.kb_label_raw), raw, R.color.kb_key_alt, R.color.kb_on_surface_variant)
             } else {
                 raw
@@ -1171,18 +1152,60 @@ class WhisperKeyboard {
             it.setTextColor(color(context, if (hasPolished) R.color.kb_on_surface_variant else R.color.kb_on_surface))
         }
 
-        // Insert is a solid primary button until the text is in the editor;
-        // then it turns into a tonal "✓ 已插入" that is really disabled.
-        renderInsertButton(context, inserted)
-        // Repolish only while nothing is inserted (it would not change the editor).
-        setActionEnabled(actionRepolish, !inserted && raw.isNotEmpty())
-        setActionEnabled(actionCopy, !resultCore.isNullOrEmpty())
-        // Discard (✕) before the insert, undo after it: one view, two meanings.
-        actionUndoIcon?.setImageResource(if (inserted) R.drawable.kb_ic_undo else R.drawable.kb_ic_close)
-        actionUndo?.contentDescription =
-            context.getString(if (inserted) R.string.kb_action_undo else R.string.kb_result_discard)
-        setActionEnabled(actionUndo, true)
+        updateInsertedCardButtons()
         fitResultActions()
+    }
+
+    private fun updateInsertedCardButtons() {
+        val context = keyboardView?.context ?: return
+        if (state != UiState.Inserted) return
+
+        // Slot 1: 復原
+        actionUndo?.isEnabled = !isRepolishing
+        actionUndo?.alpha = if (isRepolishing) 0.38f else 1.0f
+
+        // Slot 2: 重新潤飾 or 改成 {語氣}
+        if (isRepolishing) {
+            actionRepolish?.isEnabled = false
+            actionRepolish?.alpha = 0.38f
+        } else {
+            val currToneId = toneState.currentId
+            val hasCardTone = cardToneId != null && polishNote == PolishNote.OK
+            val currToneName = toneState.current?.name.orEmpty()
+
+            if (toneState.polishOn && currToneId != cardToneId) {
+                val labelText = context.getString(R.string.kb_result_apply_tone, currToneName)
+                actionRepolishLabel?.text = labelText
+                actionRepolish?.contentDescription = labelText
+                actionRepolish?.isEnabled = true
+                actionRepolish?.alpha = 1.0f
+            } else if (toneState.polishOn) {
+                actionRepolishLabel?.text = context.getString(R.string.kb_result_repolish)
+                actionRepolish?.contentDescription = context.getString(R.string.kb_result_repolish)
+                actionRepolish?.isEnabled = true
+                actionRepolish?.alpha = 1.0f
+            } else {
+                if (hasCardTone) {
+                    actionRepolishLabel?.text = context.getString(R.string.kb_result_repolish)
+                    actionRepolish?.contentDescription = context.getString(R.string.kb_result_repolish)
+                    actionRepolish?.isEnabled = true
+                    actionRepolish?.alpha = 1.0f
+                } else {
+                    actionRepolishLabel?.text = context.getString(R.string.kb_result_repolish)
+                    actionRepolish?.contentDescription = context.getString(R.string.kb_result_repolish)
+                    actionRepolish?.isEnabled = false
+                    actionRepolish?.alpha = 0.38f
+                }
+            }
+        }
+
+        // Slot 3: 複製
+        actionCopy?.isEnabled = !isRepolishing
+        actionCopy?.alpha = if (isRepolishing) 0.38f else 1.0f
+
+        // Slot 4: ✕ 收起
+        actionCollapse?.isEnabled = !isRepolishing
+        actionCollapse?.alpha = if (isRepolishing) 0.38f else 1.0f
     }
 
     // The actions must never overflow or be cut off, whatever the screen
@@ -1212,28 +1235,6 @@ class WhisperKeyboard {
         if (total > available) {
             label.visibility = View.GONE
             actionRepolish?.minimumWidth = (48f * density).toInt()
-        }
-    }
-
-    private fun renderInsertButton(context: Context, inserted: Boolean) {
-        val button = actionInsert ?: return
-        val icon = actionInsertIcon ?: return
-        val label = actionInsertLabel ?: return
-        if (inserted) {
-            button.setBackgroundResource(R.drawable.kb_bg_action_tonal_touch)
-            icon.setImageResource(R.drawable.kb_ic_check)
-            icon.imageTintList = tint(context, R.color.kb_on_primary_container)
-            label.setText(R.string.kb_action_inserted)
-            label.setTextColor(color(context, R.color.kb_on_primary_container))
-            button.isEnabled = false
-            button.alpha = 1f
-        } else {
-            button.setBackgroundResource(R.drawable.kb_bg_action_primary_touch)
-            icon.setImageResource(R.drawable.kb_ic_insert)
-            icon.imageTintList = tint(context, R.color.kb_on_primary)
-            label.setText(R.string.kb_action_insert)
-            label.setTextColor(color(context, R.color.kb_on_primary))
-            setActionEnabled(button, !resultCore.isNullOrEmpty())
         }
     }
 
@@ -1698,8 +1699,7 @@ class WhisperKeyboard {
             UiState.Idle -> onSwitchIme()
             UiState.Recording -> cancelRecording()
             UiState.Processing -> cancelProcessing()
-            // Record again: the card that was not inserted stays in the history.
-            UiState.Pending, UiState.Inserted -> startRecording()
+            UiState.Inserted -> startRecording()
         }
     }
 
@@ -1715,13 +1715,11 @@ class WhisperKeyboard {
     private fun cancelProcessing() {
         onCancelTranscribing()
         val cameFromCard = repolishing
-        val backToInserted = repolishFromInserted
         repolishing = false
-        repolishFromInserted = false
         stagedRaw = null
         haptic(buttonLeftAction, rejectHaptic())
         if (cameFromCard && !rawResultText.isNullOrEmpty()) {
-            setState(if (backToInserted) UiState.Inserted else UiState.Pending)
+            setState(UiState.Inserted)
         } else {
             setState(UiState.Idle)
         }
@@ -1749,21 +1747,6 @@ class WhisperKeyboard {
             UiState.Recording -> {
                 beginProcessing()
                 onStartTranscribing("\r\n")
-            }
-            // Enter = insert + send (SPEC_r8 §9.2)
-            UiState.Pending -> {
-                val text = resultCore?.takeIf { it.isNotEmpty() }?.plus(pendingSuffix)
-                if (text == null) {
-                    onEnter()
-                } else {
-                    haptic(buttonEnter, HapticFeedbackConstants.KEYBOARD_TAP)
-                    insertedText = null
-                    rawResultText = null
-                    polishedResultText = null
-                    pendingSuffix = ""
-                    setState(UiState.Idle)
-                    onInsertResult(text, true)
-                }
             }
             UiState.Inserted -> {
                 collapseInserted()
@@ -1806,99 +1789,102 @@ class WhisperKeyboard {
         render()
     }
 
-    private fun onActionInsert() {
-        if (state != UiState.Pending) return
-        val core = resultCore?.takeIf { it.isNotEmpty() } ?: return
-        haptic(actionInsert, HapticFeedbackConstants.KEYBOARD_TAP)
-        val text = core + pendingSuffix
-        onInsertResult(text, false)
-        insertedText = text
-        setState(UiState.Inserted)
-        showStatus(R.string.kb_action_inserted, 2000L)
-    }
-
-    // One view, two meanings: discard before the insert, undo after it.
-    private fun onActionUndoOrDiscard() {
+    private fun onActionUndo() {
+        if (state != UiState.Inserted || isRepolishing) return
+        val inserted = insertedText ?: return
         haptic(actionUndo, HapticFeedbackConstants.KEYBOARD_TAP)
-        when (state) {
-            UiState.Pending -> {
-                rawResultText = null
-                polishedResultText = null
-                pendingSuffix = ""
-                setState(UiState.Idle)
-                showStatus(R.string.kb_status_discarded, 2000L)
-            }
-
-            UiState.Inserted -> {
-                val inserted = insertedText ?: return
-                // The service only deletes when the text before the cursor is
-                // still exactly what was inserted.
-                if (onUndoInsert(inserted)) {
-                    insertedText = null
-                    setState(UiState.Pending)
-                    showStatus(R.string.kb_toast_undone, 2000L)
-                } else {
-                    showStatus(R.string.kb_toast_undo_failed, 2000L)
-                }
-            }
-
-            else -> Unit
+        val context = keyboardView?.context ?: return
+        if (onUndoInsert(inserted)) {
+            insertedText = null
+            collapseInserted()
+            showStatus(context.getString(R.string.kb_status_undone), 2000L)
+        } else {
+            showStatus(context.getString(R.string.kb_toast_undo_failed), 2000L)
         }
     }
 
-    // Re-polish with the card's tone. From the pending card, or (after a failed
-    // polish) from the inserted card's "AI 潤飾失敗 · 重試": then a success swaps the
-    // original that was typed in for the polished text.
+    private fun startRepolishShimmer() {
+        repolishShimmerAnimator?.cancel()
+        val text = textAi ?: return
+        val animator = ValueAnimator.ofFloat(1f, 0.4f).apply {
+            duration = 600
+            repeatMode = ValueAnimator.REVERSE
+            repeatCount = ValueAnimator.INFINITE
+            addUpdateListener { anim ->
+                text.alpha = anim.animatedValue as Float
+            }
+        }
+        repolishShimmerAnimator = animator
+        animator.start()
+    }
+
+    private fun stopRepolishShimmer() {
+        repolishShimmerAnimator?.cancel()
+        repolishShimmerAnimator = null
+        textAi?.alpha = 1f
+    }
+
     private fun onActionRepolish() {
-        val retryAfterFailure = state == UiState.Inserted && polishedResultText.isNullOrEmpty() &&
-            polishNote == PolishNote.FAILED
-        if (state != UiState.Pending && !retryAfterFailure) return
+        if (state != UiState.Inserted || isRepolishing) return
         val raw = rawResultText?.takeIf { it.isNotEmpty() } ?: return
+        val toneToUse = if (toneState.polishOn) toneState.currentId else cardToneId
+        if (toneToUse == null && !toneState.polishOn && polishNote == PolishNote.FAILED) return
+
+        isRepolishing = true
         haptic(actionRepolish, HapticFeedbackConstants.KEYBOARD_TAP)
-        processingStep = ProcessingStep.Polishing
-        showPolishStep = true
-        repolishing = true
-        repolishFromInserted = retryAfterFailure
-        stagedRaw = raw
-        setState(UiState.Processing)
-        onRepolish(raw, cardToneId) { polished, error ->
-            // Ignore a late answer after the user cancelled or left.
-            if (state != UiState.Processing || !repolishing) return@onRepolish
-            val backToInserted = repolishFromInserted
-            repolishing = false
-            repolishFromInserted = false
-            stagedRaw = null
-            var next = if (backToInserted) UiState.Inserted else UiState.Pending
+        startRepolishShimmer()
+        updateInsertedCardButtons()
+        val context = keyboardView?.context ?: return
+        showStatus(context.getString(R.string.kb_status_polishing), -1)
+
+        onRepolish(raw, toneToUse) { polished, error ->
+            if (state != UiState.Inserted || !isRepolishing) return@onRepolish
+            stopRepolishShimmer()
+            isRepolishing = false
+            val ctx = keyboardView?.context ?: return@onRepolish
             if (polished.isNullOrEmpty()) {
                 if (polishedResultText.isNullOrEmpty()) {
-                    // Still nothing polished: keep saying so on the card.
                     polishNote = PolishNote.FAILED
                 }
-                val context = keyboardView?.context
-                if (context != null) {
-                    val shown = error ?: ErrorMessageMapper.other(ErrorStage.POLISH).display(context)
-                    showStatus(shown.text, POLISH_ERROR_STATUS_MS, shown.detail)
-                }
+                val shown = error ?: ErrorMessageMapper.other(ErrorStage.POLISH).display(ctx)
+                showStatus(shown.text, POLISH_ERROR_STATUS_MS, shown.detail)
+                renderResultCard(ctx)
             } else {
-                polishedResultText = polished
-                polishNote = PolishNote.OK
-                if (backToInserted) {
-                    // The original is in the editor: swap it for the polished text, if
-                    // (and only if) it is still right there; otherwise offer "insert" again.
-                    val old = insertedText
-                    val replacement = polished + pendingSuffix
-                    if (old != null && onReplaceInserted(old, replacement)) {
-                        insertedText = replacement
-                        keyboardView?.context?.let { showStatus(it.getString(R.string.kb_action_inserted), 2000L) }
-                    } else {
-                        insertedText = null
-                        next = UiState.Pending
-                    }
+                val old = insertedText
+                val replacement = polished + pendingSuffix
+                if (old != null && onReplaceInserted(old, replacement)) {
+                    insertedText = replacement
+                    cardToneId = toneToUse
+                    polishedResultText = polished
+                    polishNote = PolishNote.OK
+                    renderResultCard(ctx)
+                    val toneName = toneState.tones.find { it.id == toneToUse }?.name ?: toneState.current?.name.orEmpty()
+                    showStatus(ctx.getString(R.string.kb_status_replaced, toneName), 1500L)
+                } else {
+                    cardToneId = toneToUse
+                    polishedResultText = polished
+                    polishNote = PolishNote.OK
+                    renderResultCard(ctx)
+                    showStatus(ctx.getString(R.string.kb_status_replace_skipped), 2500L)
                 }
             }
-            resultScroll?.scrollTo(0, 0)
-            setState(next)
+            updateInsertedCardButtons()
         }
+    }
+
+    private fun onActionCopy() {
+        if (state != UiState.Inserted || isRepolishing) return
+        val target = polishedResultText?.takeIf { it.isNotEmpty() } ?: rawResultText
+        if (!target.isNullOrEmpty()) {
+            haptic(actionCopy, HapticFeedbackConstants.KEYBOARD_TAP)
+            copyText(target)
+        }
+    }
+
+    private fun onActionCollapse() {
+        if (state != UiState.Inserted || isRepolishing) return
+        haptic(actionCollapse, HapticFeedbackConstants.KEYBOARD_TAP)
+        collapseInserted()
     }
 
     // =====================================================================
@@ -1912,7 +1898,7 @@ class WhisperKeyboard {
     // Free while recording (the tone is read when the request is sent), idle
     // and after an insert; locked while processing and while a result waits.
     private fun toneKeyEnabled(s: UiState = state): Boolean =
-        s == UiState.Idle || s == UiState.Recording || s == UiState.Inserted
+        s == UiState.Idle || s == UiState.Recording || (s == UiState.Inserted && !isRepolishing)
 
     private fun cardToneName(context: Context): String =
         toneState.byId(cardToneId)?.name ?: toneState.current?.name
@@ -2131,6 +2117,9 @@ class WhisperKeyboard {
             context.getString(R.string.kb_tone_switched, toneState.current?.name.orEmpty())
         }
         showStatus(message, 1500L)
+        if (state == UiState.Inserted) {
+            updateInsertedCardButtons()
+        }
         keyboardScope?.launch {
             try {
                 ToneStore.select(context, id)
