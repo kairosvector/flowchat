@@ -19,10 +19,12 @@
 
 package com.example.whispertoinput
 
+import android.content.res.Configuration
 import android.inputmethodservice.InputMethodService
 import android.os.Build
 import android.text.InputType
 import android.view.View
+import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.content.Intent
 import android.os.IBinder
@@ -30,6 +32,8 @@ import android.text.TextUtils
 import android.view.KeyEvent
 import android.view.inputmethod.InputMethodManager
 import android.widget.Toast
+import androidx.core.content.ContextCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.datastore.preferences.core.Preferences
 import com.example.whispertoinput.keyboard.WhisperKeyboard
 import com.example.whispertoinput.recorder.RecorderManager
@@ -61,13 +65,15 @@ class WhisperInputService : InputMethodService() {
     private var useOggFormat: Boolean = false
     private var isFirstTime: Boolean = true
 
-    private fun transcriptionCallback(text: String?, raw: String?, polished: String?) {
+    private fun transcriptionCallback(
+        text: String?, raw: String?, polished: String?, note: PolishNote
+    ) {
         if (!text.isNullOrEmpty()) {
             currentInputConnection?.commitText(text, 1)
             // Fork6: the panel switches to the result card (raw vs polished
             // exactly as the transcriber produced them) and remembers the
             // inserted text so "undo" can delete it again.
-            whisperKeyboard.showResult(raw ?: text.trim(), polished, text)
+            whisperKeyboard.showResult(raw ?: text.trim(), polished, text, note)
             // Check if auto-switch-back is enabled and switch if so
             CoroutineScope(Dispatchers.Main).launch {
                 val autoSwitchBack = dataStore.data.map { preferences: Preferences ->
@@ -175,7 +181,7 @@ class WhisperInputService : InputMethodService() {
         }
 
         // Returns the keyboard after setting it up and inflating its layout
-        return whisperKeyboard.setup(layoutInflater,
+        val keyboardView = whisperKeyboard.setup(layoutInflater,
             shouldOfferImeSwitch,
             { onStartRecording() },
             { onCancelRecording() },
@@ -193,6 +199,34 @@ class WhisperInputService : InputMethodService() {
             { inserted -> onUndoInsert(inserted) },
             { raw, done -> whisperTranscriber.polishAsync(this, raw, done) },
         )
+        applyNavigationBarStyle()
+        return keyboardView
+    }
+
+    // Fork6 round 4: the strip under the keyboard (system navigation / gesture
+    // bar and the IME switcher row) is drawn by the system in the colour of
+    // this window's navigation bar. Give it the panel's own background token
+    // and the matching light / dark icons, so the panel and the strip are one
+    // colour in both themes. Called again on a theme change (see
+    // onConfigurationChanged) and whenever the window is shown.
+    private fun applyNavigationBarStyle() {
+        val imeWindow = window?.window ?: return
+        val dark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+        val panelColor = ContextCompat.getColor(this, R.color.kb_background)
+        imeWindow.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
+        @Suppress("DEPRECATION")
+        imeWindow.navigationBarColor = panelColor
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            imeWindow.navigationBarDividerColor = panelColor
+        }
+        WindowInsetsControllerCompat(imeWindow, imeWindow.decorView)
+            .isAppearanceLightNavigationBars = !dark
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        applyNavigationBarStyle()
     }
 
     private fun onStartRecording() {
@@ -254,7 +288,7 @@ class WhisperInputService : InputMethodService() {
             recordedAudioFilename,
             audioMediaType,
             attachToEnd,
-            { text, raw, polished -> transcriptionCallback(text, raw, polished) },
+            { text, raw, polished, note -> transcriptionCallback(text, raw, polished, note) },
             { transcriptionExceptionCallback(it) },
             { stage, text -> onPolishStage(stage, text) })
     }
@@ -393,6 +427,7 @@ class WhisperInputService : InputMethodService() {
     // "already has a view" or "already showed once".
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
+        applyNavigationBarStyle()
         whisperKeyboard.reset()
     }
 

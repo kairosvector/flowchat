@@ -43,6 +43,21 @@ enum class PolishStage {
     POLISHING
 }
 
+/**
+ * What happened to polishing for one result (fork6 round 4), so the
+ * result card never silently shows only the raw text.
+ */
+enum class PolishNote {
+    /** Polishing is switched off (or there was nothing to polish). */
+    OFF,
+    /** The text was not longer than [POLISH_MIN_LENGTH]; polishing was skipped by design. */
+    TOO_SHORT,
+    /** The LLM call failed (HTTP error, timeout, empty reply ...). */
+    FAILED,
+    /** Polished successfully. */
+    OK
+}
+
 class WhisperTranscriber {
     private data class Config(
         val endpoint: String,
@@ -68,7 +83,8 @@ class WhisperTranscriber {
     private data class Outcome(
         val textWithAttach: String,
         val rawCore: String,
-        val polishedCore: String?
+        val polishedCore: String?,
+        val polishNote: PolishNote
     )
 
     private val TAG = "WhisperTranscriber"
@@ -79,7 +95,7 @@ class WhisperTranscriber {
         filename: String,
         mediaType: String,
         attachToEnd: String,
-        callback: (text: String?, raw: String?, polished: String?) -> Unit,
+        callback: (text: String?, raw: String?, polished: String?, note: PolishNote) -> Unit,
         exceptionCallback: (String) -> Unit,
         stageCallback: ((PolishStage, String?) -> Unit)? = null
     ) {
@@ -155,6 +171,7 @@ class WhisperTranscriber {
             val trimmedCore = coreText.trim()
             stageCallback?.invoke(PolishStage.RAW, trimmedCore)
             var polishedCore: String? = null
+            var polishNote = PolishNote.OFF
             if (polishEnabled && trimmedCore.length > POLISH_MIN_LENGTH) {
                 stageCallback?.invoke(PolishStage.POLISHING, null)
                 val llmKey = llmApiKey.ifBlank { apiKey }
@@ -168,6 +185,10 @@ class WhisperTranscriber {
                         prompt = llmPrompt
                     )
                 )
+                polishNote = if (polishedCore != null) PolishNote.OK else PolishNote.FAILED
+            } else if (polishEnabled) {
+                Log.i(TAG, "polish skipped: ${trimmedCore.length} chars is not over the $POLISH_MIN_LENGTH-char minimum")
+                polishNote = PolishNote.TOO_SHORT
             }
             val finalCore = polishedCore ?: trimmedCore
             val textWithAttach = if (attachToEnd == "") {
@@ -176,7 +197,7 @@ class WhisperTranscriber {
                 // Only used for space key and enter key.
                 finalCore + attachToEnd
             }
-            return Outcome(textWithAttach, trimmedCore, polishedCore)
+            return Outcome(textWithAttach, trimmedCore, polishedCore, polishNote)
         }
 
         // Create a cancellable job in the main thread (for UI updating)
@@ -212,7 +233,12 @@ class WhisperTranscriber {
             // This callback is within the main thread. Raw and polished
             // come straight from the outcome (fork6), so the result card
             // never depends on the history file having been written.
-            callback.invoke(outcome?.textWithAttach, outcome?.rawCore, outcome?.polishedCore)
+            callback.invoke(
+                outcome?.textWithAttach,
+                outcome?.rawCore,
+                outcome?.polishedCore,
+                outcome?.polishNote ?: PolishNote.OFF
+            )
 
             // If exception message is not null
             if (!exceptionMessage.isNullOrEmpty()) {

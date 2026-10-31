@@ -24,7 +24,6 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.animation.ValueAnimator
 import android.content.res.ColorStateList
-import android.graphics.Paint
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -44,13 +43,13 @@ import androidx.annotation.ColorRes
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.core.content.ContextCompat
-import androidx.core.graphics.ColorUtils
 import androidx.core.math.MathUtils
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.datastore.preferences.core.edit
 import com.example.whispertoinput.LANGUAGE_CODE
 import com.example.whispertoinput.LanguageSettings
+import com.example.whispertoinput.PolishNote
 import com.example.whispertoinput.POLISH_ENABLED
 import com.example.whispertoinput.R
 import com.example.whispertoinput.TranscriptionHistory
@@ -83,7 +82,6 @@ private const val LANGUAGE_EN = LanguageSettings.EN
 // not applied beyond that.
 private const val LABEL_MAX_FONT_SCALE: Float = 1.15f
 private const val RESULT_TEXT_MAX_FONT_SCALE: Float = 1.3f
-private const val HOLD_HINT_MAX_FONT_SCALE: Float = 1.0f
 
 // Mic key sizes (dp): idle / processing / result vs. the recording stop key.
 private const val MIC_SIZE_DP: Float = 96f
@@ -132,6 +130,11 @@ class WhisperKeyboard {
     private var showPolishStep: Boolean = true
     private var repolishing: Boolean = false
     private var stagedRaw: String? = null
+
+    // What polishing did for the result on screen, and whether the (clamped)
+    // original is expanded.
+    private var polishNote: PolishNote = PolishNote.OFF
+    private var rawExpanded: Boolean = false
 
     // Last record (what the history file holds) and the result card.
     private var rawResultText: String? = null
@@ -220,8 +223,15 @@ class WhisperKeyboard {
     private var buttonRetry: TextView? = null
 
     private var rowAi: View? = null
+    private var rowNotice: View? = null
+    private var textNotice: TextView? = null
+    private var buttonNoticeAction: TextView? = null
+    private var textNoChange: TextView? = null
+    private var tagRaw: View? = null
     private var textRaw: TextView? = null
     private var textAi: TextView? = null
+    private var actionInsertIcon: ImageView? = null
+    private var actionInsertLabel: TextView? = null
     private var actionInsert: View? = null
     private var actionRepolish: View? = null
     private var actionCopy: View? = null
@@ -292,8 +302,15 @@ class WhisperKeyboard {
         buttonRetry = root.findViewById(R.id.btn_retry)
 
         rowAi = root.findViewById(R.id.row_ai)
+        rowNotice = root.findViewById(R.id.row_notice)
+        textNotice = root.findViewById(R.id.text_notice)
+        buttonNoticeAction = root.findViewById(R.id.btn_notice_action)
+        textNoChange = root.findViewById(R.id.text_no_change)
+        tagRaw = root.findViewById(R.id.tag_raw)
         textRaw = root.findViewById(R.id.text_raw)
         textAi = root.findViewById(R.id.text_ai)
+        actionInsertIcon = root.findViewById(R.id.action_insert_icon)
+        actionInsertLabel = root.findViewById(R.id.action_insert_label)
         actionInsert = root.findViewById(R.id.action_insert)
         actionRepolish = root.findViewById(R.id.action_repolish)
         actionCopy = root.findViewById(R.id.action_copy)
@@ -352,6 +369,16 @@ class WhisperKeyboard {
         actionRepolish!!.setOnClickListener { onActionRepolish() }
         actionCopy!!.setOnClickListener { copyText(lastResultText) }
         actionUndo!!.setOnClickListener { onActionUndo() }
+        // Retry / force the polish only (the recording is not repeated).
+        buttonNoticeAction!!.setOnClickListener { onActionRepolish() }
+        // The original is clamped to two lines next to a polished text;
+        // tapping it expands / collapses it.
+        textRaw!!.setOnClickListener {
+            if (state == UiState.Result && !polishedResultText.isNullOrEmpty()) {
+                rawExpanded = !rawExpanded
+                render()
+            }
+        }
 
         // Resets keyboard upon setup
         reset()
@@ -385,9 +412,11 @@ class WhisperKeyboard {
      * transcriber (not read back from the history file, which may have
      * failed to save); [insertedText] is what "undo" will delete again.
      */
-    fun showResult(raw: String, polished: String?, insertedText: String?) {
+    fun showResult(raw: String, polished: String?, insertedText: String?, note: PolishNote) {
         rawResultText = raw
         polishedResultText = polished?.takeIf { it.isNotEmpty() }
+        polishNote = note
+        rawExpanded = false
         val inserted = insertedText?.takeIf { it.isNotEmpty() }
         this.insertedText = inserted
         this.insertedBase = if (inserted != null) lastResultText else null
@@ -741,26 +770,49 @@ class WhisperKeyboard {
         val raw = rawResultText.orEmpty()
         val polished = polishedResultText
         val hasPolished = !polished.isNullOrEmpty()
-        textRaw?.let {
-            it.text = raw
-            // Struck through and grey only when there is a polished text
-            // to compare it with.
-            it.paintFlags = if (hasPolished) it.paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
-            else it.paintFlags and Paint.STRIKE_THRU_TEXT_FLAG.inv()
-            // 60% onSurfaceVariant when it is the crossed-out original.
-            it.setTextColor(
-                if (hasPolished) ColorUtils.setAlphaComponent(
-                    color(context, R.color.kb_on_surface_variant), (255 * 0.6f).toInt()
-                ) else color(context, R.color.kb_on_surface)
-            )
-        }
+
+        // Polished text on top (it is what gets inserted), the original
+        // under it in grey: two lines, tap to expand, no strike-through.
+        // Without a polished text there is one text only, in full.
         rowAi?.visibility = if (hasPolished) View.VISIBLE else View.GONE
         textAi?.text = polished.orEmpty()
+        textNoChange?.visibility =
+            if (hasPolished && polished == raw) View.VISIBLE else View.GONE
+        tagRaw?.visibility = if (hasPolished) View.VISIBLE else View.GONE
+        textRaw?.let {
+            it.text = raw
+            val clamp = hasPolished && !rawExpanded
+            it.maxLines = if (clamp) 2 else Int.MAX_VALUE
+            it.ellipsize = if (clamp) android.text.TextUtils.TruncateAt.END else null
+            it.setTextColor(
+                color(context, if (hasPolished) R.color.kb_on_surface_variant else R.color.kb_on_surface)
+            )
+            val lp = it.layoutParams as ViewGroup.MarginLayoutParams
+            val start = if (hasPolished) (10f * context.resources.displayMetrics.density).toInt() else 0
+            if (lp.marginStart != start) {
+                lp.marginStart = start
+                it.layoutParams = lp
+            }
+        }
+
+        // Polishing did not give a text although it was on: say why, never
+        // just show the raw text as if nothing happened.
+        val showNotice = !hasPolished &&
+            (polishNote == PolishNote.FAILED || polishNote == PolishNote.TOO_SHORT)
+        rowNotice?.visibility = if (showNotice) View.VISIBLE else View.GONE
+        if (showNotice) {
+            val failed = polishNote == PolishNote.FAILED
+            textNotice?.setText(if (failed) R.string.kb_polish_failed else R.string.kb_polish_too_short)
+            textNotice?.setTextColor(
+                color(context, if (failed) R.color.kb_recording else R.color.kb_on_surface_variant)
+            )
+            buttonNoticeAction?.setText(if (failed) R.string.kb_polish_retry else R.string.kb_polish_force)
+        }
 
         // Insert is only useful while the current text is not already the
         // one sitting in the editor; undo only while something is there.
-        val canInsert = !lastResultText.isNullOrEmpty() && insertedBase != lastResultText
-        setActionEnabled(actionInsert, canInsert)
+        val hasText = !lastResultText.isNullOrEmpty()
+        renderInsertButton(context, inserted = hasText && insertedBase == lastResultText, hasText = hasText)
         setActionEnabled(actionUndo, insertedText != null)
         setActionEnabled(actionRepolish, raw.isNotEmpty())
         setActionEnabled(actionCopy, !lastResultText.isNullOrEmpty())
@@ -796,6 +848,30 @@ class WhisperKeyboard {
         if (total > available) {
             labels.forEach { it?.visibility = View.GONE }
             iconOnly.forEach { it?.minimumWidth = (48f * density).toInt() }
+        }
+    }
+
+    // "Insert" is a solid primary button until the text is in the editor;
+    // then it turns into a tonal "✓ 已插入" that is really disabled.
+    private fun renderInsertButton(context: Context, inserted: Boolean, hasText: Boolean) {
+        val button = actionInsert ?: return
+        val icon = actionInsertIcon ?: return
+        val label = actionInsertLabel ?: return
+        if (inserted) {
+            button.setBackgroundResource(R.drawable.kb_bg_action_tonal_touch)
+            icon.setImageResource(R.drawable.kb_ic_check)
+            icon.imageTintList = tint(context, R.color.kb_on_primary_container)
+            label.setText(R.string.kb_action_inserted)
+            label.setTextColor(color(context, R.color.kb_on_primary_container))
+            button.isEnabled = false
+            button.alpha = 1f
+        } else {
+            button.setBackgroundResource(R.drawable.kb_bg_action_primary_touch)
+            icon.setImageResource(R.drawable.kb_ic_insert)
+            icon.imageTintList = tint(context, R.color.kb_on_primary)
+            label.setText(R.string.kb_action_insert)
+            label.setTextColor(color(context, R.color.kb_on_primary))
+            setActionEnabled(button, hasText)
         }
     }
 
@@ -961,6 +1037,9 @@ class WhisperKeyboard {
         // yet as far as this card knows, so insert is offered, undo is not.
         insertedText = null
         insertedBase = null
+        // The history file keeps only what was polished; a failure is not stored.
+        polishNote = if (polishedResultText.isNullOrEmpty()) PolishNote.OFF else PolishNote.OK
+        rawExpanded = false
         resultScroll?.scrollTo(0, 0)
         setState(UiState.Result)
     }
@@ -1027,9 +1106,16 @@ class WhisperKeyboard {
             repolishing = false
             stagedRaw = null
             if (polished.isNullOrEmpty()) {
-                toast(R.string.kb_toast_repolish_failed)
+                if (polishedResultText.isNullOrEmpty()) {
+                    // Still nothing polished: keep saying so on the card.
+                    polishNote = PolishNote.FAILED
+                } else {
+                    toast(R.string.kb_toast_repolish_failed)
+                }
             } else {
                 polishedResultText = polished
+                polishNote = PolishNote.OK
+                rawExpanded = false
             }
             resultScroll?.scrollTo(0, 0)
             setState(UiState.Result)
@@ -1164,7 +1250,6 @@ class WhisperKeyboard {
         if (view is TextView && fontScale > 1f) {
             val cap = when (view.id) {
                 R.id.text_raw, R.id.text_ai -> RESULT_TEXT_MAX_FONT_SCALE
-                R.id.hold_hint -> HOLD_HINT_MAX_FONT_SCALE
                 else -> LABEL_MAX_FONT_SCALE
             }
             if (fontScale > cap) {
@@ -1182,7 +1267,12 @@ class WhisperKeyboard {
     // sits above the bar).
     private fun applyNavigationBarInset(root: View) {
         ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
-            val bottom = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
+            // Use the inset the bar has when shown (not what it is right now)
+            // so a bar that hides / reappears can not change the panel height.
+            val bottom = maxOf(
+                insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.navigationBars()).bottom,
+                insets.getInsets(WindowInsetsCompat.Type.mandatorySystemGestures()).bottom
+            )
             if (v.paddingBottom != bottom) {
                 v.setPadding(v.paddingLeft, v.paddingTop, v.paddingRight, bottom)
             }
