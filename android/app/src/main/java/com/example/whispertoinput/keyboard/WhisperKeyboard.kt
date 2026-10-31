@@ -22,6 +22,7 @@ package com.example.whispertoinput.keyboard
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.animation.ValueAnimator
 import android.content.res.ColorStateList
 import android.graphics.Paint
 import android.os.Handler
@@ -30,19 +31,26 @@ import android.os.SystemClock
 import android.view.HapticFeedbackConstants
 import android.view.LayoutInflater
 import android.view.MotionEvent
+import android.util.TypedValue
 import android.view.View
+import android.view.ViewGroup
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.annotation.ColorRes
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.ColorUtils
 import androidx.core.math.MathUtils
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.datastore.preferences.core.edit
 import com.example.whispertoinput.LANGUAGE_CODE
+import com.example.whispertoinput.LanguageSettings
 import com.example.whispertoinput.POLISH_ENABLED
 import com.example.whispertoinput.R
 import com.example.whispertoinput.TranscriptionHistory
@@ -65,14 +73,22 @@ private const val SWIPE_CANCEL_DP: Float = 48f
 private const val WAVEFORM_TICK_MS: Long = 50
 private const val LEVEL_DECAY_PER_TICK: Float = 0.90f
 
-private const val LANGUAGE_AUTO = "auto"
-private const val LANGUAGE_ZH = "zh"
-private const val LANGUAGE_EN = "en"
+private const val LANGUAGE_AUTO = LanguageSettings.AUTO
+private const val LANGUAGE_ZH = LanguageSettings.ZH
+private const val LANGUAGE_EN = LanguageSettings.EN
 
-// A language code typed in the settings page that is not auto / zh / en is
-// remembered here, so the language key keeps it in its cycle.
-private const val PREFS_NAME = "whisper_input_prefs"
-private const val PREF_CUSTOM_LANGUAGE = "custom_language_code"
+// Largest system font scale the panel follows. The panel is a fixed 280dp,
+// so labels / hints / badges / button text stop growing at 1.15x and the
+// result card's body text at 1.3x (it scrolls); a bigger system scale is
+// not applied beyond that.
+private const val LABEL_MAX_FONT_SCALE: Float = 1.15f
+private const val RESULT_TEXT_MAX_FONT_SCALE: Float = 1.3f
+private const val HOLD_HINT_MAX_FONT_SCALE: Float = 1.0f
+
+// Mic key sizes (dp): idle / processing / result vs. the recording stop key.
+private const val MIC_SIZE_DP: Float = 96f
+private const val STOP_SIZE_DP: Float = 84f
+private const val MIC_SIZE_ANIM_MS: Long = 120
 
 /**
  * Fork6 redesigned keyboard panel. The whole panel is driven by one
@@ -135,6 +151,11 @@ class WhisperKeyboard {
     private var polishEnabled: Boolean = true
     private var languageCode: String = LANGUAGE_AUTO
     private var customLanguageCode: String? = null
+
+    // Mic key size animation (layout size, not scale: the stop square and
+    // the pulse rings must keep their dp sizes).
+    private var micSizeDp: Float = MIC_SIZE_DP
+    private var micSizeAnimator: ValueAnimator? = null
     private var offerImeSwitch: Boolean = true
 
     // Mic gesture bookkeeping
@@ -205,6 +226,11 @@ class WhisperKeyboard {
     private var actionRepolish: View? = null
     private var actionCopy: View? = null
     private var actionUndo: View? = null
+    private var actionsRow: View? = null
+    private var actionRepolishLabel: View? = null
+    private var actionCopyLabel: View? = null
+    private var actionUndoLabel: View? = null
+    private var resultScroll: ScrollView? = null
 
     private var buttonLeftAction: ImageButton? = null
     private var buttonSpaceBar: View? = null
@@ -272,6 +298,11 @@ class WhisperKeyboard {
         actionRepolish = root.findViewById(R.id.action_repolish)
         actionCopy = root.findViewById(R.id.action_copy)
         actionUndo = root.findViewById(R.id.action_undo)
+        actionsRow = root.findViewById(R.id.row_actions)
+        actionRepolishLabel = root.findViewById(R.id.action_repolish_label)
+        actionCopyLabel = root.findViewById(R.id.action_copy_label)
+        actionUndoLabel = root.findViewById(R.id.action_undo_label)
+        resultScroll = root.findViewById(R.id.result_scroll)
 
         buttonLeftAction = root.findViewById(R.id.btn_left_action)
         buttonSpaceBar = root.findViewById(R.id.btn_space_bar)
@@ -295,6 +326,8 @@ class WhisperKeyboard {
         this.onUndoInsert = onUndoInsert
         this.onRepolish = onRepolish
 
+        capFontScale(root, root.resources.configuration.fontScale)
+        applyNavigationBarInset(root)
         setupMicGesture()
         buttonLeftAction!!.setOnClickListener { onLeftActionClick() }
         buttonLeftAction!!.setOnLongClickListener { onLeftActionLongClick() }
@@ -361,6 +394,7 @@ class WhisperKeyboard {
         this.insertedCursor = -1
         repolishing = false
         stagedRaw = null
+        resultScroll?.scrollTo(0, 0)
         setState(UiState.Result)
     }
 
@@ -550,7 +584,10 @@ class WhisperKeyboard {
                 mic.setImageResource(R.drawable.kb_ic_mic)
                 mic.imageTintList = tint(context, R.color.kb_on_primary)
                 mic.contentDescription = context.getString(R.string.start_speech_to_text)
-                animateMicScale(1f)
+                // 96dp key with a 44dp icon.
+                setMicPadding(mic, 26f)
+                mic.elevation = dpToPx(mic, 3f)
+                animateMicSize(MIC_SIZE_DP)
             }
 
             UiState.Recording -> {
@@ -559,7 +596,10 @@ class WhisperKeyboard {
                 mic.setImageResource(R.drawable.kb_stop_square)
                 mic.imageTintList = null
                 mic.contentDescription = context.getString(R.string.start_transcribing)
-                animateMicScale(84f / 96f)
+                // 84dp circle, the 28dp stop square drawn at its own size.
+                setMicPadding(mic, 28f)
+                mic.elevation = dpToPx(mic, 3f)
+                animateMicSize(STOP_SIZE_DP)
             }
 
             UiState.Processing -> {
@@ -568,15 +608,40 @@ class WhisperKeyboard {
                 mic.setImageResource(R.drawable.kb_ic_sparkle)
                 mic.imageTintList = tint(context, R.color.kb_on_primary_container)
                 mic.contentDescription = null
-                animateMicScale(1f)
+                // 96dp key with a 40dp sparkle, flat (no shadow).
+                setMicPadding(mic, 28f)
+                mic.elevation = 0f
+                animateMicSize(MIC_SIZE_DP)
             }
         }
     }
 
-    private fun animateMicScale(scale: Float) {
+    private fun setMicPadding(mic: View, dp: Float) {
+        val px = dpToPx(mic, dp).toInt()
+        mic.setPadding(px, px, px, px)
+    }
+
+    private fun dpToPx(view: View, dp: Float): Float = dp * view.resources.displayMetrics.density
+
+    // Smooth 96 <-> 84dp change of the key's real layout size (it is
+    // centred in the fixed 132dp mic frame, so nothing around it moves).
+    private fun animateMicSize(targetDp: Float) {
         val mic = buttonMic ?: return
-        if (mic.scaleX == scale) return
-        mic.animate().scaleX(scale).scaleY(scale).setDuration(120).start()
+        if (micSizeDp == targetDp && micSizeAnimator?.isRunning != true) return
+        micSizeAnimator?.cancel()
+        val animator = ValueAnimator.ofFloat(micSizeDp, targetDp).apply {
+            duration = MIC_SIZE_ANIM_MS
+            addUpdateListener {
+                micSizeDp = it.animatedValue as Float
+                val px = dpToPx(mic, micSizeDp).toInt()
+                val lp = mic.layoutParams
+                lp.width = px
+                lp.height = px
+                mic.layoutParams = lp
+            }
+        }
+        micSizeAnimator = animator
+        animator.start()
     }
 
     private fun renderHintRow(context: Context, s: UiState) {
@@ -653,8 +718,10 @@ class WhisperKeyboard {
             }
 
             UiState.Recording, UiState.Processing -> {
+                // Same look while recording and while processing: keyAlt
+                // key, recording-red cross.
                 left.visibility = View.VISIBLE
-                left.setBackgroundResource(R.drawable.kb_bg_key_recording)
+                left.setBackgroundResource(R.drawable.kb_bg_key_alt)
                 left.setImageResource(R.drawable.kb_ic_close)
                 left.imageTintList = tint(context, R.color.kb_recording)
                 left.contentDescription = context.getString(R.string.kb_cancel)
@@ -680,8 +747,11 @@ class WhisperKeyboard {
             // to compare it with.
             it.paintFlags = if (hasPolished) it.paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
             else it.paintFlags and Paint.STRIKE_THRU_TEXT_FLAG.inv()
+            // 60% onSurfaceVariant when it is the crossed-out original.
             it.setTextColor(
-                color(context, if (hasPolished) R.color.kb_on_surface_variant else R.color.kb_on_surface)
+                if (hasPolished) ColorUtils.setAlphaComponent(
+                    color(context, R.color.kb_on_surface_variant), (255 * 0.6f).toInt()
+                ) else color(context, R.color.kb_on_surface)
             )
         }
         rowAi?.visibility = if (hasPolished) View.VISIBLE else View.GONE
@@ -694,6 +764,39 @@ class WhisperKeyboard {
         setActionEnabled(actionUndo, insertedText != null)
         setActionEnabled(actionRepolish, raw.isNotEmpty())
         setActionEnabled(actionCopy, !lastResultText.isNullOrEmpty())
+        fitResultActions()
+    }
+
+    // The four buttons must never overflow or be cut off, whatever the
+    // screen width or font scale: if they do not fit with their labels,
+    // repolish / copy / undo drop to icon-only (48dp wide); their
+    // contentDescription (set in the layout) keeps them readable by TalkBack.
+    private fun fitResultActions() {
+        val row = actionsRow as? ViewGroup ?: return
+        val card = groupResult ?: return
+        val root = keyboardView ?: return
+        val density = root.resources.displayMetrics.density
+        val labels = listOf(actionRepolishLabel, actionCopyLabel, actionUndoLabel)
+        val iconOnly = listOf(actionRepolish, actionCopy, actionUndo)
+        labels.forEach { it?.visibility = View.VISIBLE }
+        iconOnly.forEach { it?.minimumWidth = 0 }
+        // panel padding 8dp x2, card padding 12dp x2 and its 1dp border
+        val available = root.width - (16f + 2f) * density - card.paddingLeft - card.paddingRight
+        if (available <= 0f) return
+        var total = 0
+        for (i in 0 until row.childCount) {
+            val child = row.getChildAt(i)
+            child.measure(
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+            )
+            val lp = child.layoutParams as ViewGroup.MarginLayoutParams
+            total += child.measuredWidth + lp.marginStart + lp.marginEnd
+        }
+        if (total > available) {
+            labels.forEach { it?.visibility = View.GONE }
+            iconOnly.forEach { it?.minimumWidth = (48f * density).toInt() }
+        }
     }
 
     private fun setActionEnabled(action: View?, enabled: Boolean) {
@@ -858,6 +961,7 @@ class WhisperKeyboard {
         // yet as far as this card knows, so insert is offered, undo is not.
         insertedText = null
         insertedBase = null
+        resultScroll?.scrollTo(0, 0)
         setState(UiState.Result)
     }
 
@@ -927,6 +1031,7 @@ class WhisperKeyboard {
             } else {
                 polishedResultText = polished
             }
+            resultScroll?.scrollTo(0, 0)
             setState(UiState.Result)
         }
     }
@@ -997,9 +1102,13 @@ class WhisperKeyboard {
         val context = keyboardView?.context ?: return
         CoroutineScope(Dispatchers.Main).launch {
             try {
-                languageCode = context.dataStore.data.map { preferences ->
-                    preferences[LANGUAGE_CODE] ?: LANGUAGE_AUTO
-                }.first().ifBlank { LANGUAGE_AUTO }
+                // Only a code the API accepts is shown / cycled; anything
+                // else (blank, "multi", garbage) counts as auto.
+                languageCode = LanguageSettings.normalize(
+                    context.dataStore.data.map { preferences ->
+                        preferences[LANGUAGE_CODE] ?: LANGUAGE_AUTO
+                    }.first()
+                )
             } catch (_: Exception) {
                 languageCode = LANGUAGE_AUTO
             }
@@ -1010,17 +1119,14 @@ class WhisperKeyboard {
 
     // A code from the settings page (e.g. ja) is not one of the three
     // built-in choices; keep it so cycling away from it does not lose it.
+    // The settings page clears it again (LanguageSettings.syncCustomFromSetting)
+    // when the code is set back to auto / zh / en.
     private fun rememberCustomLanguage(context: Context) {
-        try {
-            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            if (languageCode != LANGUAGE_AUTO && languageCode != LANGUAGE_ZH && languageCode != LANGUAGE_EN) {
-                customLanguageCode = languageCode
-                prefs.edit().putString(PREF_CUSTOM_LANGUAGE, languageCode).apply()
-            } else if (customLanguageCode == null) {
-                customLanguageCode = prefs.getString(PREF_CUSTOM_LANGUAGE, null)?.takeIf { it.isNotBlank() }
-            }
-        } catch (_: Exception) {
-            // Best effort: without it the cycle is just auto / zh / en.
+        if (!LanguageSettings.isBuiltIn(languageCode)) {
+            customLanguageCode = languageCode
+            LanguageSettings.syncCustomFromSetting(context, languageCode)
+        } else {
+            customLanguageCode = LanguageSettings.loadCustom(context)
         }
     }
 
@@ -1050,6 +1156,39 @@ class WhisperKeyboard {
     // =====================================================================
     // Helpers
     // =====================================================================
+
+    // Fixed 280dp panel: stop the system font scale from pushing text past
+    // the caps above. A text view keeps its XML sp size up to the cap and is
+    // scaled down in px beyond it (never up).
+    private fun capFontScale(view: View, fontScale: Float) {
+        if (view is TextView && fontScale > 1f) {
+            val cap = when (view.id) {
+                R.id.text_raw, R.id.text_ai -> RESULT_TEXT_MAX_FONT_SCALE
+                R.id.hold_hint -> HOLD_HINT_MAX_FONT_SCALE
+                else -> LABEL_MAX_FONT_SCALE
+            }
+            if (fontScale > cap) {
+                view.setTextSize(TypedValue.COMPLEX_UNIT_PX, view.textSize * cap / fontScale)
+            }
+        }
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) capFontScale(view.getChildAt(i), fontScale)
+        }
+    }
+
+    // The panel's 8dp bottom margin is measured above the system gesture /
+    // navigation bar: whatever bottom inset the window reports becomes
+    // padding under the fixed 280dp panel (zero when the IME window already
+    // sits above the bar).
+    private fun applyNavigationBarInset(root: View) {
+        ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+            val bottom = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
+            if (v.paddingBottom != bottom) {
+                v.setPadding(v.paddingLeft, v.paddingTop, v.paddingRight, bottom)
+            }
+            insets
+        }
+    }
 
     private fun refreshLastRecord() {
         try {
