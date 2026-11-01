@@ -133,7 +133,7 @@ class WhisperKeyboard {
         Inserted,    // Result card, inserted (everything unlocked; undo available)
     }
 
-    private enum class Tab { Voice, Clip }
+    private enum class Tab { Voice, Clip, Emoji }
 
     // The two segments of the 📋 tab.
     private enum class ClipSegment { Clipboard, History }
@@ -342,9 +342,15 @@ class WhisperKeyboard {
     private var repolishShimmerAnimator: ValueAnimator? = null
 
     private var buttonLeftAction: ImageButton? = null
+    private var buttonEmoji: View? = null
+    private var buttonEmojiIcon: ImageView? = null
+    private var buttonEmojiBackContent: View? = null
+    private var labelEmojiBack: TextView? = null
     private var buttonSpaceBar: View? = null
     private var buttonBackspace: BackspaceButton? = null
     private var buttonEnter: ImageButton? = null
+    private var emojiPanel: View? = null
+    private var emojiPickerView: androidx.emoji2.emojipicker.EmojiPickerView? = null
 
     private var scrim: View? = null
     private var toneMenu: View? = null
@@ -437,9 +443,15 @@ class WhisperKeyboard {
         resultScroll = root.findViewById(R.id.result_scroll)
 
         buttonLeftAction = root.findViewById(R.id.btn_left_action)
+        buttonEmoji = root.findViewById<View>(R.id.btn_emoji)
+        buttonEmojiIcon = root.findViewById(R.id.btn_emoji_icon)
+        buttonEmojiBackContent = root.findViewById(R.id.btn_emoji_back_content)
+        labelEmojiBack = root.findViewById(R.id.label_emoji_back)
         buttonSpaceBar = root.findViewById(R.id.btn_space_bar)
         buttonBackspace = root.findViewById(R.id.btn_backspace)
         buttonEnter = root.findViewById(R.id.btn_enter)
+        emojiPanel = root.findViewById<View>(R.id.emoji_panel)
+        emojiPickerView = root.findViewById(R.id.emoji_picker_view)
         scrim = root.findViewById(R.id.scrim)
         toneMenu = root.findViewById(R.id.tone_menu)
         toneMenuOffSlot = root.findViewById(R.id.tone_menu_off_slot)
@@ -480,6 +492,14 @@ class WhisperKeyboard {
         setupMicGesture()
         buttonLeftAction!!.setOnClickListener { onLeftActionClick() }
         buttonLeftAction!!.setOnLongClickListener { onLeftActionLongClick() }
+        buttonEmoji?.setOnClickListener { onEmojiKeyClick() }
+        emojiPickerView?.setOnEmojiPickedListener { emojiViewItem ->
+            val emoji = emojiViewItem.emoji
+            if (!emoji.isNullOrEmpty()) {
+                haptic(emojiPickerView, HapticFeedbackConstants.KEYBOARD_TAP)
+                onInsertText(emoji)
+            }
+        }
         buttonSpaceBar!!.setOnClickListener { onButtonSpaceBarClick() }
         buttonEnter!!.setOnClickListener { onButtonEnterClick() }
         buttonBackspace!!.setBackspaceCallback(
@@ -800,14 +820,16 @@ class WhisperKeyboard {
         val context = view.context
         val s = state
         val showCard = s == UiState.Inserted
-        val showClip = tab == Tab.Clip && !showCard
+        val showEmoji = tab == Tab.Emoji && !showCard
+        val showClip = tab == Tab.Clip && !showCard && !showEmoji
 
         // The tone key is locked in some states: an open menu goes with it.
         if (overlay != Overlay.None && !toneKeyEnabled(s)) closeOverlay(animated = false, rerender = false)
         renderTopRow(context, s)
 
-        setGroupVisible(groupMain, !(showCard || showClip), appearMs = 150, card = false)
+        setGroupVisible(groupMain, !(showCard || showClip || showEmoji), appearMs = 150, card = false)
         setGroupVisible(groupClip, showClip, appearMs = 120, card = false)
+        setGroupVisible(emojiPanel, showEmoji, appearMs = 120, card = false)
         setGroupVisible(groupResult, showCard, appearMs = 200, card = true)
 
         keyLanguageCol?.visibility = if (s == UiState.Idle) View.VISIBLE else View.GONE
@@ -1118,6 +1140,78 @@ class WhisperKeyboard {
                 left.contentDescription = context.getString(R.string.start_speech_to_text)
             }
         }
+        renderEmojiKey(context, s)
+    }
+
+    private fun renderEmojiKey(context: Context, s: UiState) {
+        val emojiBtn = buttonEmoji ?: return
+        val isMiddleReplaced = (tab == Tab.Emoji) || (tab == Tab.Clip) || (s == UiState.Inserted) || isRepolishing || (overlay == Overlay.Viewer)
+
+        if (s == UiState.Recording || s == UiState.Processing) {
+            emojiBtn.isEnabled = false
+            emojiBtn.alpha = 0.38f
+            buttonEmojiIcon?.visibility = View.VISIBLE
+            buttonEmojiBackContent?.visibility = View.GONE
+            emojiBtn.setBackgroundResource(R.drawable.kb_bg_key_alt)
+            emojiBtn.contentDescription = context.getString(R.string.kb_emoji_key_cd)
+        } else if (isMiddleReplaced) {
+            emojiBtn.isEnabled = true
+            emojiBtn.alpha = 1.0f
+            buttonEmojiIcon?.visibility = View.GONE
+            buttonEmojiBackContent?.visibility = View.VISIBLE
+            emojiBtn.setBackgroundResource(R.drawable.kb_bg_key_container)
+            emojiBtn.contentDescription = context.getString(R.string.kb_back_to_voice_cd)
+        } else {
+            emojiBtn.isEnabled = true
+            emojiBtn.alpha = 1.0f
+            buttonEmojiIcon?.visibility = View.VISIBLE
+            buttonEmojiBackContent?.visibility = View.GONE
+            emojiBtn.setBackgroundResource(R.drawable.kb_bg_key_alt)
+            emojiBtn.contentDescription = context.getString(R.string.kb_emoji_key_cd)
+        }
+    }
+
+    private fun onEmojiKeyClick() {
+        val s = state
+        val isMiddleReplaced = (tab == Tab.Emoji) || (tab == Tab.Clip) || (s == UiState.Inserted) || isRepolishing || (overlay == Overlay.Viewer)
+        if (isMiddleReplaced) {
+            onReturnToVoice()
+        } else {
+            haptic(buttonEmoji, HapticFeedbackConstants.KEYBOARD_TAP)
+            openEmojiPanel()
+        }
+    }
+
+    private fun onReturnToVoice() {
+        haptic(buttonEmoji, HapticFeedbackConstants.KEYBOARD_TAP)
+        val context = keyboardView?.context
+        if (overlay == Overlay.Viewer) {
+            closeOverlay(animated = false, rerender = false)
+        }
+        if (state == UiState.Inserted || isRepolishing) {
+            collapseInserted()
+        }
+        if (tab == Tab.Clip) {
+            clearReveal()
+        }
+        tab = Tab.Voice
+        deleteIndex = -1
+        setState(UiState.Idle)
+        if (context != null) {
+            buttonMic?.announceForAccessibility(context.getString(R.string.kb_back_to_voice_announce))
+        }
+        buttonMic?.requestFocus()
+    }
+
+    private fun openEmojiPanel() {
+        if (state != UiState.Idle && state != UiState.Inserted) return
+        closeOverlay(animated = false, rerender = false)
+        if (state == UiState.Inserted) {
+            collapseInserted()
+        }
+        tab = Tab.Emoji
+        deleteIndex = -1
+        render()
     }
 
     // ---- result card ----

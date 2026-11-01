@@ -547,6 +547,21 @@
             </ScrollView>
         </LinearLayout>
 
+        <!-- Emoji panel (SPEC_r8 §22.2, card area 396x156) -->
+        <FrameLayout
+            android:id="@+id/emoji_panel"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_marginTop="4dp"
+            android:visibility="gone">
+
+            <androidx.emoji2.emojipicker.EmojiPickerView
+                android:id="@+id/emoji_picker_view"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                app:emojiGridColumns="9" />
+        </FrameLayout>
+
         <!-- Result card (396x156): polished text (2 lines, scrolls) above the
              original (2 lines), then the actions. Not inserted yet = pending. -->
         <LinearLayout
@@ -732,7 +747,8 @@
                     android:clickable="true"
                     android:contentDescription="@string/kb_result_collapse_cd"
                     android:focusable="true"
-                    android:gravity="center">
+                    android:gravity="center"
+                    android:visibility="gone">
 
                     <ImageView
                         android:layout_width="16dp"
@@ -767,6 +783,55 @@
             android:scaleType="fitCenter"
             android:src="@drawable/kb_ic_keyboard"
             app:tint="@color/kb_on_surface_variant" />
+
+        <FrameLayout
+            android:id="@+id/btn_emoji"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/kb_bg_key_alt"
+            android:clickable="true"
+            android:contentDescription="@string/kb_emoji_key_cd"
+            android:focusable="true">
+
+            <!-- Normal state: 😊 (SPEC_r8 §22.1) -->
+            <ImageView
+                android:id="@+id/btn_emoji_icon"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_gravity="center"
+                android:importantForAccessibility="no"
+                android:src="@drawable/kb_ic_emoji"
+                app:tint="@color/kb_on_surface_variant" />
+
+            <!-- Replaced state: ← 返回 (SPEC_r8 §22.10) -->
+            <LinearLayout
+                android:id="@+id/btn_emoji_back_content"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <ImageView
+                    android:id="@+id/btn_emoji_back_icon"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/kb_ic_arrow_back"
+                    app:tint="@color/kb_on_primary_container" />
+
+                <TextView
+                    android:id="@+id/label_emoji_back"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="1dp"
+                    android:includeFontPadding="false"
+                    android:text="@string/kb_back_label"
+                    android:textColor="@color/kb_on_primary_container"
+                    android:textSize="11sp" />
+            </LinearLayout>
+        </FrameLayout>
 
         <LinearLayout
             android:id="@+id/btn_space_bar"

@@ -200,6 +200,12 @@
     <string name="kb_state_closed">關閉</string>
     <string name="kb_listening">聆聽中</string>
     <string name="kb_backspace">退格</string>
+    <string name="kb_emoji_key_cd">表情符號</string>
+    <string name="kb_emoji_back_cd">返回語音輸入</string>
+    <string name="kb_status_idle_hint">說完會自動插入</string>
+    <string name="kb_back_label">返回</string>
+    <string name="kb_back_to_voice_cd">返回語音輸入</string>
+    <string name="kb_back_to_voice_announce">已回到語音輸入</string>
 
 
     <!-- ================= Fork6 round 6: settings page (zh-TW) ================= -->
