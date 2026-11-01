@@ -2,6 +2,13 @@
 
 原專案：j3soon/whisper-to-input（GPL-3.0，作者 Yan-Bin Diau、Johnson Sun 等，見原 LICENSE 與 README）。
 
+## 2026-11-01 fork6 第十七輪：Emoji 面板空間釋放與順手度升級（版本 0.4-fork6，versionCode 26）
+- Emoji 面板極致順手度與空間釋放（A1–A3，選項 B）：
+  - 頂列動態隱藏（釋放 48dp 空間）：切換至 Emoji 模式（`Tab.Emoji`）時，頂列 `top_row` 動態設為 `GONE`，中間區域（`middle_area` / `emoji_panel`）自動向上擴展 48dp（高度由 156dp 擴增至 204dp，垂直視野增加超過 30%，可完整呈現 5 大行 Emoji）。點擊底列「← 返回」（`btn_emoji`）切回語音主畫面時，頂列 `top_row` 立即恢復為 `VISIBLE`。
+  - 7 欄舒適排版：維持 `app:emojiGridColumns="7"` 配合 204dp 擴展高度，每顆 Emoji 大圖示、呼吸感充足、間距適中不誤觸。
+  - 底列退格鍵動態切換：在 Emoji 模式下，因頂列隱藏，底列右側的 `btn_period`（句點鍵）動態切換為「⌫ 退格鍵」（呈現 `kb_ic_backspace`，點擊調用 `onButtonBackspace()` 一次刪除一個完整字素，支援長按連續退格）；切回語音（`Tab.Voice`）或剪貼簿（`Tab.Clip`）模式時，該鍵自動恢復為「。」句點鍵。底列在 Emoji 模式下的佈局為：`[切換 52]` `[← 返回 52]` `[空白 162]` `[⌫ 52]` `[Enter 52]`。
+- versionCode 25→26；簽章維持本機 debug keystore。
+
 ## 2026-11-01 fork6 第十六輪：正式改名 FlowChat、Prompt v5 升級（版本 0.4-fork6，versionCode 25）
 - 正式改名 FlowChat 與 Package ID 遷移（A1–A2）：
   - 將 Android `applicationId` 與 `namespace` 徹底遷移為 `com.kairosvector.flowchat`。
