@@ -297,4 +297,123 @@ class ClipboardCoreTest {
         assertTrue(key.endsWith(":123"))
         assertEquals(64 + 4, key.length)
     }
+
+    // ---- "上次" chip (SPEC_r8 §22.4) ----
+
+    @Test
+    fun lastTranscriptionChipShownWhenFieldChangesWithinThirtyMinutes() {
+        val baseNow = 1_000_000L
+        val ts = baseNow - 5 * 60 * 1000L // 5 mins ago
+
+        val canShow = LastTranscriptionChip.canShow(
+            isVoiceTab = true,
+            isIdle = true,
+            noOverlay = true,
+            isStatusDefaultEmpty = true,
+            pasteChipVisible = false,
+            isDismissed = false,
+            isPasswordField = false,
+            isNoPersonalizedLearning = false,
+            currentPackage = "com.android.chrome",
+            currentFieldId = 101,
+            lastPackage = "jp.naver.line.android",
+            lastFieldId = 202,
+            lastText = "你好這是一段測試語音",
+            lastTimestamp = ts,
+            now = baseNow
+        )
+        assertTrue(canShow)
+    }
+
+    @Test
+    fun lastTranscriptionChipHiddenInSameField() {
+        val baseNow = 1_000_000L
+        val ts = baseNow - 60_000L
+
+        val canShow = LastTranscriptionChip.canShow(
+            isVoiceTab = true,
+            isIdle = true,
+            noOverlay = true,
+            isStatusDefaultEmpty = true,
+            pasteChipVisible = false,
+            isDismissed = false,
+            isPasswordField = false,
+            isNoPersonalizedLearning = false,
+            currentPackage = "com.android.chrome",
+            currentFieldId = 101,
+            lastPackage = "com.android.chrome",
+            lastFieldId = 101,
+            lastText = "你好",
+            lastTimestamp = ts,
+            now = baseNow
+        )
+        assertFalse(canShow)
+    }
+
+    @Test
+    fun lastTranscriptionChipHiddenWhenExpiredOrSensitiveOrDismissed() {
+        val baseNow = 1_000_000L
+        val expiredTs = baseNow - 31 * 60 * 1000L // 31 mins ago
+
+        // Expired > 30 mins
+        assertFalse(
+            LastTranscriptionChip.canShow(
+                isVoiceTab = true, isIdle = true, noOverlay = true, isStatusDefaultEmpty = true,
+                pasteChipVisible = false, isDismissed = false, isPasswordField = false, isNoPersonalizedLearning = false,
+                currentPackage = "com.b", currentFieldId = 2, lastPackage = "com.a", lastFieldId = 1,
+                lastText = "測試", lastTimestamp = expiredTs, now = baseNow
+            )
+        )
+
+        val validTs = baseNow - 60_000L
+        // Password field
+        assertFalse(
+            LastTranscriptionChip.canShow(
+                isVoiceTab = true, isIdle = true, noOverlay = true, isStatusDefaultEmpty = true,
+                pasteChipVisible = false, isDismissed = false, isPasswordField = true, isNoPersonalizedLearning = false,
+                currentPackage = "com.b", currentFieldId = 2, lastPackage = "com.a", lastFieldId = 1,
+                lastText = "測試", lastTimestamp = validTs, now = baseNow
+            )
+        )
+
+        // No personalized learning
+        assertFalse(
+            LastTranscriptionChip.canShow(
+                isVoiceTab = true, isIdle = true, noOverlay = true, isStatusDefaultEmpty = true,
+                pasteChipVisible = false, isDismissed = false, isPasswordField = false, isNoPersonalizedLearning = true,
+                currentPackage = "com.b", currentFieldId = 2, lastPackage = "com.a", lastFieldId = 1,
+                lastText = "測試", lastTimestamp = validTs, now = baseNow
+            )
+        )
+
+        // Paste chip has higher priority
+        assertFalse(
+            LastTranscriptionChip.canShow(
+                isVoiceTab = true, isIdle = true, noOverlay = true, isStatusDefaultEmpty = true,
+                pasteChipVisible = true, isDismissed = false, isPasswordField = false, isNoPersonalizedLearning = false,
+                currentPackage = "com.b", currentFieldId = 2, lastPackage = "com.a", lastFieldId = 1,
+                lastText = "測試", lastTimestamp = validTs, now = baseNow
+            )
+        )
+
+        // Dismissed
+        assertFalse(
+            LastTranscriptionChip.canShow(
+                isVoiceTab = true, isIdle = true, noOverlay = true, isStatusDefaultEmpty = true,
+                pasteChipVisible = false, isDismissed = true, isPasswordField = false, isNoPersonalizedLearning = false,
+                currentPackage = "com.b", currentFieldId = 2, lastPackage = "com.a", lastFieldId = 1,
+                lastText = "測試", lastTimestamp = validTs, now = baseNow
+            )
+        )
+
+        // Not Voice tab
+        assertFalse(
+            LastTranscriptionChip.canShow(
+                isVoiceTab = false, isIdle = true, noOverlay = true, isStatusDefaultEmpty = true,
+                pasteChipVisible = false, isDismissed = false, isPasswordField = false, isNoPersonalizedLearning = false,
+                currentPackage = "com.b", currentFieldId = 2, lastPackage = "com.a", lastFieldId = 1,
+                lastText = "測試", lastTimestamp = validTs, now = baseNow
+            )
+        )
+    }
 }

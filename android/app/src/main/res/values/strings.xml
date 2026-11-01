@@ -206,6 +206,8 @@
     <string name="kb_back_label">返回</string>
     <string name="kb_back_to_voice_cd">返回語音輸入</string>
     <string name="kb_back_to_voice_announce">已回到語音輸入</string>
+    <string name="kb_last_chip_cd">再插入上次的內容：%1$s</string>
+    <string name="kb_period_cd">句號</string>
 
 
     <!-- ================= Fork6 round 6: settings page (zh-TW) ================= -->

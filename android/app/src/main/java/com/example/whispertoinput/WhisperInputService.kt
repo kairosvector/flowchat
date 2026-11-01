@@ -70,6 +70,13 @@ class WhisperInputService : InputMethodService() {
         toneId: String?, usedFallbackModel: Boolean = false
     ) {
         if (!text.isNullOrEmpty()) {
+            val inserted = polished ?: raw ?: text
+            whisperKeyboard.setLastTranscription(
+                currentInputEditorInfo?.packageName,
+                currentInputEditorInfo?.fieldId ?: 0,
+                inserted,
+                System.currentTimeMillis()
+            )
             val mode = ResultFlow.forNote(note)
             when (mode) {
                 ResultMode.INSERTED_POLISHED -> {
@@ -481,6 +488,7 @@ class WhisperInputService : InputMethodService() {
         super.onStartInputView(info, restarting)
         applyNavigationBarStyle()
         whisperKeyboard.reset()
+        whisperKeyboard.onStartInput(info)
         // The clipboard is only read while the keyboard is on screen (SPEC_r8 §13.2).
         whisperKeyboard.onKeyboardShown()
     }

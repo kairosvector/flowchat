@@ -235,3 +235,38 @@ object PasteChip {
         return key !in pastedKeys && key != dismissedKey
     }
 }
+
+/** When the "🕘 上次" chip is shown (SPEC_r8 §22.4). */
+object LastTranscriptionChip {
+    const val WINDOW_MILLIS = 30L * 60 * 1000L // 30 minutes
+
+    fun canShow(
+        isVoiceTab: Boolean,
+        isIdle: Boolean,
+        noOverlay: Boolean,
+        isStatusDefaultEmpty: Boolean,
+        pasteChipVisible: Boolean,
+        isDismissed: Boolean,
+        isPasswordField: Boolean,
+        isNoPersonalizedLearning: Boolean,
+        currentPackage: String?,
+        currentFieldId: Int,
+        lastPackage: String?,
+        lastFieldId: Int,
+        lastText: String?,
+        lastTimestamp: Long,
+        now: Long
+    ): Boolean {
+        if (!isVoiceTab || !isIdle || !noOverlay || !isStatusDefaultEmpty) return false
+        if (pasteChipVisible || isDismissed) return false
+        if (lastText.isNullOrEmpty()) return false
+        if (now - lastTimestamp > WINDOW_MILLIS || now < lastTimestamp) return false
+        if (isPasswordField || isNoPersonalizedLearning) return false
+
+        // Not shown in the exact same field where it was just inserted
+        val sameField = currentPackage != null && currentPackage == lastPackage && currentFieldId == lastFieldId
+        if (sameField) return false
+
+        return true
+    }
+}

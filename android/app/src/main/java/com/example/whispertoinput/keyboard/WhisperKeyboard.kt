@@ -28,6 +28,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.text.InputType
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.view.Gravity
@@ -37,6 +38,7 @@ import android.view.MotionEvent
 import android.util.TypedValue
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -49,6 +51,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.math.MathUtils
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
 import androidx.core.widget.TextViewCompat
 import androidx.datastore.preferences.core.edit
 import com.example.whispertoinput.ClipClassifier
@@ -57,6 +60,7 @@ import com.example.whispertoinput.ClipKind
 import com.example.whispertoinput.ClipList
 import com.example.whispertoinput.ClipPreview
 import com.example.whispertoinput.ClipStore
+import com.example.whispertoinput.LastTranscriptionChip
 import com.example.whispertoinput.PasteChip
 import com.example.whispertoinput.ErrorDisplay
 import com.example.whispertoinput.ErrorMessageMapper
@@ -214,6 +218,10 @@ class WhisperKeyboard {
         chipDismissArmed = false
         renderStatus()
     }
+    private val lastChipDisarmRunnable = Runnable {
+        lastChipDismissArmed = false
+        renderStatus()
+    }
     private val chipExpiryRunnable = Runnable { renderStatus() }
     private val clipRetryRunnable = Runnable {
         clipWatcher?.refresh()
@@ -310,6 +318,23 @@ class WhisperKeyboard {
     private var pasteChipIcon: ImageView? = null
     private var pasteChipTag: TextView? = null
     private var pasteChipText: TextView? = null
+    private var lastChip: View? = null
+    private var lastChipIcon: ImageView? = null
+    private var lastChipText: TextView? = null
+    private var lastChipDismissArmed: Boolean = false
+    private var lastChipDismissed: Boolean = false
+
+    // Input target tracking (SPEC_r8 §22.4)
+    private var currentPackageName: String? = null
+    private var currentFieldId: Int = 0
+    private var currentInputType: Int = 0
+    private var currentImeOptions: Int = 0
+
+    // Last transcription tracking (SPEC_r8 §22.4)
+    private var lastInsertedPackage: String? = null
+    private var lastInsertedFieldId: Int = 0
+    private var lastTranscriptionText: String? = null
+    private var lastTranscriptionTimestamp: Long = 0L
     private var keyLanguageCol: View? = null
     private var keySettingsCol: View? = null
     private var buttonLanguage: ImageButton? = null
@@ -413,6 +438,9 @@ class WhisperKeyboard {
         pasteChipIcon = root.findViewById(R.id.paste_chip_icon)
         pasteChipTag = root.findViewById(R.id.paste_chip_tag)
         pasteChipText = root.findViewById(R.id.paste_chip_text)
+        lastChip = root.findViewById(R.id.last_chip)
+        lastChipIcon = root.findViewById(R.id.last_chip_icon)
+        lastChipText = root.findViewById(R.id.last_chip_text)
         keyLanguageCol = root.findViewById(R.id.key_language_col)
         keySettingsCol = root.findViewById(R.id.key_settings_col)
         buttonLanguage = root.findViewById(R.id.btn_language)
@@ -517,6 +545,8 @@ class WhisperKeyboard {
         btnClipClear!!.setOnClickListener { onClipClearClick() }
         pasteChip!!.setOnClickListener { onPasteChipClick() }
         pasteChip!!.setOnLongClickListener { onPasteChipLongClick() }
+        lastChip?.setOnClickListener { onLastChipClick() }
+        lastChip?.setOnLongClickListener { onLastChipLongClick() }
         clipWatcher = ClipboardWatcher(root.context) { onClipChanged() }
         buttonTone!!.setOnClickListener { onToneKeyClick() }
         scrim!!.setOnClickListener { closeOverlay() }
@@ -540,6 +570,24 @@ class WhisperKeyboard {
     // =====================================================================
     // Public entry points used by WhisperInputService
     // =====================================================================
+
+    fun onStartInput(info: EditorInfo?) {
+        currentPackageName = info?.packageName
+        currentFieldId = info?.fieldId ?: 0
+        currentInputType = info?.inputType ?: 0
+        currentImeOptions = info?.imeOptions ?: 0
+        lastChipDismissArmed = false
+        renderStatus()
+    }
+
+    fun setLastTranscription(pkg: String?, fieldId: Int, text: String, timestampMillis: Long) {
+        lastInsertedPackage = pkg
+        lastInsertedFieldId = fieldId
+        lastTranscriptionText = text
+        lastTranscriptionTimestamp = timestampMillis
+        lastChipDismissed = false
+        lastChipDismissArmed = false
+    }
 
     fun reset() {
         handler.removeCallbacks(ticker)
@@ -1363,10 +1411,12 @@ class WhisperKeyboard {
             PasteChip.visible(item, now, pastedKeys, dismissedKey)
         if (!show || item == null) {
             chip.visibility = View.GONE
-            statusText?.visibility = View.VISIBLE
             chipDismissArmed = false
+            renderLastChip(resolved)
             return
         }
+        lastChip?.visibility = View.GONE
+        lastChipDismissArmed = false
         statusText?.visibility = View.INVISIBLE
         chip.visibility = View.VISIBLE
         val tag = pasteChipTag
@@ -1433,6 +1483,135 @@ class WhisperKeyboard {
         return true
     }
 
+    // ---- "上次" chip (SPEC_r8 §22.4) ----
+
+    private fun ensureLastTranscription(context: Context) {
+        if (lastTranscriptionText == null) {
+            val record = TranscriptionHistory.loadLast(context)
+            if (record != null) {
+                lastTranscriptionText = record.polishedText ?: record.rawText
+                lastTranscriptionTimestamp = record.timestampMillis
+            }
+        }
+    }
+
+    private fun renderLastChip(resolved: ResolvedStatus) {
+        val chip = lastChip ?: return
+        val context = chip.context
+        ensureLastTranscription(context)
+
+        val variation = currentInputType and InputType.TYPE_MASK_VARIATION
+        val isPassword = variation == InputType.TYPE_TEXT_VARIATION_PASSWORD ||
+                variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD ||
+                variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD ||
+                variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+        val isNoPersonalized = (currentImeOptions and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0
+
+        val now = System.currentTimeMillis()
+        val show = LastTranscriptionChip.canShow(
+            isVoiceTab = tab == Tab.Voice,
+            isIdle = state == UiState.Idle,
+            noOverlay = overlay == Overlay.None,
+            isStatusDefaultEmpty = resolved.type == StatusType.DEFAULT && resolved.text.isEmpty(),
+            pasteChipVisible = false,
+            isDismissed = lastChipDismissed,
+            isPasswordField = isPassword,
+            isNoPersonalizedLearning = isNoPersonalized,
+            currentPackage = currentPackageName,
+            currentFieldId = currentFieldId,
+            lastPackage = lastInsertedPackage,
+            lastFieldId = lastInsertedFieldId,
+            lastText = lastTranscriptionText,
+            lastTimestamp = lastTranscriptionTimestamp,
+            now = now
+        )
+
+        if (!show || lastTranscriptionText.isNullOrEmpty()) {
+            chip.visibility = View.GONE
+            lastChipDismissArmed = false
+            renderIdleHintOrStatus(resolved)
+            return
+        }
+
+        statusText?.visibility = View.INVISIBLE
+        chip.visibility = View.VISIBLE
+        val text = lastChipText
+        val icon = lastChipIcon
+        val fullText = lastTranscriptionText!!
+        val preview = ClipPreview.of(fullText)
+
+        if (lastChipDismissArmed) {
+            icon?.setImageResource(R.drawable.kb_ic_close)
+            text?.text = context.getString(R.string.kb_clip_dismiss)
+            chip.contentDescription = context.getString(R.string.kb_clip_dismiss)
+        } else {
+            icon?.setImageResource(R.drawable.kb_ic_history)
+            text?.text = preview
+            chip.contentDescription = context.getString(R.string.kb_last_chip_cd, preview)
+            ViewCompat.replaceAccessibilityAction(
+                chip,
+                AccessibilityNodeInfoCompat.AccessibilityActionCompat.ACTION_CLICK,
+                context.getString(R.string.kb_last_chip_cd, preview),
+                null
+            )
+            ViewCompat.addAccessibilityAction(
+                chip,
+                context.getString(R.string.kb_clip_dismiss)
+            ) { _, _ ->
+                lastChipDismissed = true
+                renderStatus()
+                true
+            }
+        }
+    }
+
+    private fun renderIdleHintOrStatus(resolved: ResolvedStatus) {
+        val statusView = statusText ?: return
+        val context = statusView.context
+        statusView.visibility = View.VISIBLE
+        if (resolved.type == StatusType.DEFAULT && resolved.text.isEmpty() &&
+            state == UiState.Idle && tab == Tab.Voice && overlay == Overlay.None
+        ) {
+            statusView.alpha = 0.7f
+            statusView.text = context.getString(R.string.kb_status_idle_hint)
+            statusView.setTextColor(color(context, R.color.kb_on_surface_variant))
+            statusView.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            statusView.contentDescription = null
+        } else {
+            statusView.alpha = 1.0f
+            statusView.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
+        }
+    }
+
+    private fun onLastChipClick() {
+        val fullText = lastTranscriptionText ?: return
+        val context = keyboardView?.context ?: return
+        haptic(lastChip, HapticFeedbackConstants.KEYBOARD_TAP)
+        handler.removeCallbacks(lastChipDisarmRunnable)
+        if (lastChipDismissArmed) {
+            lastChipDismissArmed = false
+            lastChipDismissed = true
+            renderStatus()
+            return
+        }
+        lastChipDismissed = true
+        lastInsertedPackage = currentPackageName
+        lastInsertedFieldId = currentFieldId
+        if (state == UiState.Inserted) collapseInserted()
+        onInsertText(fullText)
+        showStatus(context.getString(R.string.kb_status_inserted), 1500L)
+    }
+
+    private fun onLastChipLongClick(): Boolean {
+        if (state != UiState.Idle || lastTranscriptionText == null) return false
+        haptic(lastChip, HapticFeedbackConstants.LONG_PRESS)
+        lastChipDismissArmed = true
+        renderStatus()
+        handler.removeCallbacks(lastChipDisarmRunnable)
+        handler.postDelayed(lastChipDisarmRunnable, 3000L)
+        return true
+    }
+
     private fun onClipChanged() {
         val cur = clipWatcher?.current
         val now = System.currentTimeMillis()
@@ -1461,9 +1640,11 @@ class WhisperKeyboard {
     /** The keyboard went away: stop reading, forget masked clips and any revealed text. */
     fun onKeyboardHidden() {
         handler.removeCallbacks(clipRetryRunnable)
+        handler.removeCallbacks(lastChipDisarmRunnable)
         clipWatcher?.stop()
         clearReveal()
         chipDismissArmed = false
+        lastChipDismissArmed = false
         keyboardScope?.cancel()
         keyboardScope = null
     }
