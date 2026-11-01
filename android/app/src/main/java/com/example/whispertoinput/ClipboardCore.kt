@@ -125,12 +125,12 @@ object ClipPreview {
 data class ClipRecord(val text: String, val timestampMillis: Long)
 
 /**
- * The ordinary clipboard history (SPEC_r8 §13.4): newest first, at most 20 entries, none
- * older than 24 hours, the same text only once. Only [ClipKind.persistable] text may be
+ * The ordinary clipboard history (SPEC_r8 §13.4, ROUND 15 MVP): newest first, at most 5 entries,
+ * none older than 24 hours, the same text only once. Only [ClipKind.persistable] text may be
  * given to [add]; this is the file format of `clip-history-json`.
  */
 object ClipHistory {
-    const val MAX_RECORDS = 20
+    const val MAX_RECORDS = 5
     const val TTL_MILLIS = 24L * 60 * 60 * 1000
 
     fun parse(json: String?, now: Long): List<ClipRecord> {

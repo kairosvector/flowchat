@@ -1566,9 +1566,9 @@ class WhisperKeyboard {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setBackgroundResource(R.drawable.kb_bg_key)
-            setPadding((12 * density).toInt(), 0, (masked.let { if (it) 4 else 12 } * density).toInt(), 0)
+            setPadding((12 * density).toInt(), (8 * density).toInt(), (masked.let { if (it) 4 else 12 } * density).toInt(), (8 * density).toInt())
             layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, (44 * density).toInt()
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { bottomMargin = (4 * density).toInt() }
             isClickable = true
             isFocusable = true
@@ -1606,10 +1606,10 @@ class WhisperKeyboard {
             })
         }
         row.addView(TextView(context).apply {
-            text = if (masked && !revealed) "••••" else item.text.replace(Regex("\\s+"), " ")
+            text = if (masked && !revealed) "••••" else item.text
             setTextColor(color(context, R.color.kb_on_surface))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f * historyScale(context))
-            maxLines = 1
+            maxLines = 3
             ellipsize = android.text.TextUtils.TruncateAt.END
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO.takeIf { masked } ?: View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)

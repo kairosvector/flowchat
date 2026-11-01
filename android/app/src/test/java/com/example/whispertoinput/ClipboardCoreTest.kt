@@ -148,13 +148,13 @@ class ClipboardCoreTest {
     }
 
     @Test
-    fun theHistoryKeepsTwentyEntries() {
+    fun theHistoryKeepsFiveEntries() {
         var list = emptyList<ClipRecord>()
         for (n in 1..25) list = ClipHistory.add(list, "item $n", now + n, now + n)
-        assertEquals(20, list.size)
+        assertEquals(5, list.size)
         assertEquals("item 25", list.first().text)
-        assertEquals("item 6", list.last().text)
-        assertEquals(20, ClipHistory.parse(ClipHistory.encode(list), now + 25).size)
+        assertEquals("item 21", list.last().text)
+        assertEquals(5, ClipHistory.parse(ClipHistory.encode(list), now + 25).size)
     }
 
     @Test
