@@ -71,7 +71,7 @@
             android:background="@drawable/kb_bg_tab"
             android:contentDescription="@string/kb_tab_emoji"
             android:src="@drawable/kb_ic_emoji"
-            android:visibility="invisible"
+            android:visibility="gone"
             android:tint="@color/kb_color_tab" />
 
         <ImageButton
@@ -597,7 +597,7 @@
                 android:id="@+id/emoji_picker_view"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                app:emojiGridColumns="9" />
+                app:emojiGridColumns="7" />
         </FrameLayout>
 
         <!-- Result card (396x156): polished text (2 lines, scrolls) above the
@@ -800,7 +800,7 @@
     </FrameLayout>
 
     <!-- Bottom action row, 52dp:
-         left key (72dp) | space (0dp weight 1) | enter (72dp) -->
+         switch (52dp) | emoji (52dp) | space (0dp weight 1) | period (52dp) | enter (52dp) -->
     <LinearLayout
         android:id="@+id/bottom_row"
         android:layout_width="match_parent"
@@ -810,14 +810,11 @@
 
         <ImageButton
             android:id="@+id/btn_left_action"
-            android:layout_width="72dp"
+            android:layout_width="52dp"
             android:layout_height="52dp"
             android:background="@drawable/kb_bg_key_alt"
             android:contentDescription="@string/btn_previous_ime_hint"
-            android:paddingStart="25dp"
-            android:paddingTop="15dp"
-            android:paddingEnd="25dp"
-            android:paddingBottom="15dp"
+            android:padding="14dp"
             android:scaleType="fitCenter"
             android:src="@drawable/kb_ic_keyboard"
             android:tint="@color/kb_on_surface_variant"
@@ -904,20 +901,33 @@
                 android:textSize="13sp" />
         </LinearLayout>
 
+        <TextView
+            android:id="@+id/btn_period"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/kb_bg_key"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:text="。"
+            android:textColor="@color/kb_on_surface"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:contentDescription="@string/kb_period_cd" />
+
         <ImageButton
             android:id="@+id/btn_enter"
-            android:layout_width="72dp"
+            android:layout_width="52dp"
             android:layout_height="52dp"
             android:layout_marginStart="6dp"
             android:background="@drawable/kb_bg_key_container"
             android:contentDescription="@string/start_transcribing"
-            android:paddingStart="25dp"
-            android:paddingTop="15dp"
-            android:paddingEnd="25dp"
-            android:paddingBottom="15dp"
+            android:padding="14dp"
             android:scaleType="fitCenter"
             android:src="@drawable/kb_ic_enter"
-            android:tint="@color/kb_on_primary_container" />
+            android:tint="@color/kb_on_primary_container"
+            app:tint="@color/kb_on_primary_container" />
     </LinearLayout>
 </LinearLayout>
 

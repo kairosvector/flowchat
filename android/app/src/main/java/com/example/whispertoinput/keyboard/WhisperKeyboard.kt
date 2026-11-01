@@ -372,6 +372,7 @@ class WhisperKeyboard {
     private var buttonEmojiBackContent: View? = null
     private var labelEmojiBack: TextView? = null
     private var buttonSpaceBar: View? = null
+    private var buttonPeriod: TextView? = null
     private var buttonBackspace: BackspaceButton? = null
     private var buttonEnter: ImageButton? = null
     private var emojiPanel: View? = null
@@ -476,6 +477,7 @@ class WhisperKeyboard {
         buttonEmojiBackContent = root.findViewById(R.id.btn_emoji_back_content)
         labelEmojiBack = root.findViewById(R.id.label_emoji_back)
         buttonSpaceBar = root.findViewById(R.id.btn_space_bar)
+        buttonPeriod = root.findViewById(R.id.btn_period)
         buttonBackspace = root.findViewById(R.id.btn_backspace)
         buttonEnter = root.findViewById(R.id.btn_enter)
         emojiPanel = root.findViewById<View>(R.id.emoji_panel)
@@ -529,6 +531,7 @@ class WhisperKeyboard {
             }
         }
         buttonSpaceBar!!.setOnClickListener { onButtonSpaceBarClick() }
+        buttonPeriod?.setOnClickListener { onButtonPeriodClick() }
         buttonEnter!!.setOnClickListener { onButtonEnterClick() }
         buttonBackspace!!.setBackspaceCallback(
             { if (!closeOverlayIfOpen()) { collapseInserted(); this.onButtonBackspace() } },
@@ -2051,6 +2054,18 @@ class WhisperKeyboard {
         } else {
             collapseInserted()
             onSpaceBar()
+        }
+    }
+
+    private fun onButtonPeriodClick() {
+        clearError()
+        haptic(buttonPeriod, HapticFeedbackConstants.KEYBOARD_TAP)
+        if (state == UiState.Recording) {
+            beginProcessing()
+            onStartTranscribing("。")
+        } else {
+            collapseInserted()
+            onInsertText("。")
         }
     }
 
