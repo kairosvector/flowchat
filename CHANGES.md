@@ -2,6 +2,20 @@
 
 原專案：j3soon/whisper-to-input（GPL-3.0，作者 Yan-Bin Diau、Johnson Sun 等，見原 LICENSE 與 README）。
 
+## 2026-11-01 fork6 第十六輪：正式改名 FlowChat、Prompt v5 升級（版本 0.4-fork6，versionCode 25）
+- 正式改名 FlowChat 與 Package ID 遷移（A1–A2）：
+  - 將 Android `applicationId` 與 `namespace` 徹底遷移為 `com.kairosvector.flowchat`。
+  - 重構原始碼目錄至 `android/app/src/main/java/com/kairosvector/flowchat/` 與對應 test / androidTest 目錄，全面更新所有程式碼的 package 與 import 宣告。
+  - 更新 `AndroidManifest.xml`（IME 服務宣告與名稱）及 `res/values/strings.xml` 中 `app_name` 為 `FlowChat`。
+- 全新 Prompt v5 升級（B1–B3）：
+  - 共用基底 Prompt 精煉：移除冗長示範例句，直接下達規則，顯著降低 prompt token 消耗（Prompt 總長度自適應減少 21%～34%）。
+  - 最前置硬性語言防線：明訂「中文全文必須使用『繁體中文（台灣常用字）』，絕對禁止輸出簡體中文或韓文；若逐字稿是簡體字必須全部轉為繁體。非中文的專有名詞、數字、英文術語保持原樣」。
+  - 條列識別換行：講者條列事物時（如第一/第二、首先/然後/最後），各項目獨立自動換行。
+  - 結巴清理與中文標點後不留空格：刪除贅字與結巴重複，自我修正時保留最後說法。
+  - 語氣特化：專業語氣適用工作商務、拿掉口語語助詞（啦、喔、欸）且不加 emoji；聊天語氣保留口語助詞（啦、喔、欸、哈哈）、自然斷句且可在適合處加最多 1 個貼切 emoji。
+  - 版本與平順遷移：`POLISH_PROMPT_VERSION` 升級為 5；`ToneMigration.upgradeTones` 支援將未自訂之舊版內建語氣自動升級為 v5，使用者自訂之語氣與修改過的 prompt 完全保留。
+- versionCode 24→25；簽章維持本機 debug keystore。
+
 ## 2026-11-01 fork6 第十五輪：剪貼簿 MVP、頂列上次 chip 與淡字、底列對稱句點鍵與 7 欄 Emoji（版本仍是 0.4-fork6，versionCode 24）
 - 剪貼簿 MVP 改版（A1–A3，SPEC_r8 §13）：
   - 筆數收斂：歷史紀錄上限調整為最近 5 筆（`ClipHistory.MAX_RECORDS = 5`），超過時最舊者自動汰除。
