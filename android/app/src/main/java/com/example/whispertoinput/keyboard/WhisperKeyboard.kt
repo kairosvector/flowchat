@@ -215,6 +215,9 @@ class WhisperKeyboard {
         renderStatus()
     }
     private val chipExpiryRunnable = Runnable { renderStatus() }
+    private val clipRetryRunnable = Runnable {
+        clipWatcher?.refresh()
+    }
 
     // The tone list and the current tone (cached; reloaded on every reset()).
     private var toneState: ToneState = ToneState(TonePrompts.defaultTones(), TONE_PRO)
@@ -299,6 +302,7 @@ class WhisperKeyboard {
     private var groupResult: View? = null
     private var clipList: LinearLayout? = null
     private var clipEmpty: TextView? = null
+    private var textClipDiag: TextView? = null
     private var segClipboard: TextView? = null
     private var segHistory: TextView? = null
     private var btnClipClear: TextView? = null
@@ -395,6 +399,7 @@ class WhisperKeyboard {
         groupResult = root.findViewById(R.id.group_result)
         clipList = root.findViewById(R.id.clip_list)
         clipEmpty = root.findViewById(R.id.clip_empty)
+        textClipDiag = root.findViewById(R.id.text_clip_diag)
         segClipboard = root.findViewById(R.id.seg_clipboard)
         segHistory = root.findViewById(R.id.seg_history)
         btnClipClear = root.findViewById(R.id.btn_clip_clear)
@@ -1347,8 +1352,16 @@ class WhisperKeyboard {
         clipWatcher?.start()
     }
 
+    /** The keyboard window is shown and focused (ROUND 14 §A2). Re-reads clipboard and schedules a 150ms retry. */
+    fun onWindowShown() {
+        clipWatcher?.refresh()
+        handler.removeCallbacks(clipRetryRunnable)
+        handler.postDelayed(clipRetryRunnable, 150L)
+    }
+
     /** The keyboard went away: stop reading, forget masked clips and any revealed text. */
     fun onKeyboardHidden() {
+        handler.removeCallbacks(clipRetryRunnable)
         clipWatcher?.stop()
         clearReveal()
         chipDismissArmed = false
@@ -1392,14 +1405,36 @@ class WhisperKeyboard {
         val list = clipList ?: return
         list.removeAllViews()
         if (clipSegment == ClipSegment.History) {
+            textClipDiag?.visibility = View.GONE
             val records = TranscriptionHistory.loadAll(context)
             clipEmpty?.setText(R.string.kb_history_empty)
             clipEmpty?.visibility = if (records.isEmpty()) View.VISIBLE else View.GONE
             records.forEachIndexed { index, record -> list.addView(historyRow(context, index, record)) }
         } else {
+            val statusText = when (clipWatcher?.lastReadStatus) {
+                ClipReadStatus.SUCCESS -> context.getString(R.string.kb_clip_diag_success)
+                ClipReadStatus.EMPTY -> context.getString(R.string.kb_clip_diag_empty)
+                ClipReadStatus.DENIED -> context.getString(R.string.kb_clip_diag_denied)
+                else -> ""
+            }
+            if (statusText.isNotEmpty()) {
+                textClipDiag?.visibility = View.VISIBLE
+                textClipDiag?.text = "（$statusText）"
+            } else {
+                textClipDiag?.visibility = View.GONE
+            }
+
             val items = clipboardItems()
-            clipEmpty?.setText(R.string.kb_clip_empty)
-            clipEmpty?.visibility = if (items.isEmpty()) View.VISIBLE else View.GONE
+            if (items.isEmpty()) {
+                clipEmpty?.visibility = View.VISIBLE
+                clipEmpty?.text = if (statusText.isNotEmpty()) {
+                    context.getString(R.string.kb_clip_empty) + "\n（$statusText）"
+                } else {
+                    context.getString(R.string.kb_clip_empty)
+                }
+            } else {
+                clipEmpty?.visibility = View.GONE
+            }
             items.forEach { list.addView(clipRow(context, it)) }
         }
     }
@@ -1784,8 +1819,8 @@ class WhisperKeyboard {
         deleteIndex = -1
         clipClearArmed = false
         clearReveal()
-        // The clipboard first; when it holds nothing, the transcription history.
-        clipSegment = if (clipboardItems().isNotEmpty()) ClipSegment.Clipboard else ClipSegment.History
+        // Round 14 §A3: Always open the clipboard segment first, never fallback to history when empty.
+        clipSegment = ClipSegment.Clipboard
         render()
     }
 

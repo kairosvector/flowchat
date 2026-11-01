@@ -35,6 +35,17 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 /**
+ * Diagnostic status of the latest clipboard read attempt (ROUND 14 §A).
+ * Never contains clipboard contents and is never logged.
+ */
+enum class ClipReadStatus {
+    NONE,
+    SUCCESS,    // 有讀到
+    EMPTY,      // 讀到空的
+    DENIED      // 被系統拒絕
+}
+
+/**
  * Reads the system clipboard while the keyboard is shown (SPEC_r8 §13): once when the keyboard
  * appears and again whenever the primary clip changes; the listener is removed when the keyboard
  * closes. Only text clips count. The text lives in [current] (memory); what may be kept goes to
@@ -47,6 +58,15 @@ class ClipboardWatcher(context: Context, private val onChanged: () -> Unit) {
     /** The text now on the clipboard, or null when it is empty or not text. */
     var current: ClipItem? = null
         private set
+
+    /** Diagnostic status of the last read attempt. */
+    var lastReadStatus: ClipReadStatus = ClipReadStatus.NONE
+        private set
+
+    /** Visible for testing: override the read status in tests. */
+    fun setDiagnosticStatusForTesting(status: ClipReadStatus) {
+        lastReadStatus = status
+    }
 
     /** The kept ordinary history, newest first (loaded when the keyboard shows and after each change). */
     var history: List<ClipRecord> = emptyList()
@@ -107,17 +127,34 @@ class ClipboardWatcher(context: Context, private val onChanged: () -> Unit) {
     }
 
     private fun readCurrent(): ClipItem? {
-        val m = manager ?: return null
+        val m = manager
+        if (m == null) {
+            lastReadStatus = ClipReadStatus.EMPTY
+            return null
+        }
         return try {
-            if (!m.hasPrimaryClip()) return null
-            val description = m.primaryClipDescription ?: return null
-            if (!description.hasMimeType(ClipDescription.MIMETYPE_TEXT_PLAIN) &&
-                !description.hasMimeType(ClipDescription.MIMETYPE_TEXT_HTML)
-            ) return null
-            val clip = m.primaryClip ?: return null
-            if (clip.itemCount == 0) return null
+            if (!m.hasPrimaryClip()) {
+                lastReadStatus = ClipReadStatus.EMPTY
+                return null
+            }
+            val description = m.primaryClipDescription
+            if (description == null ||
+                (!description.hasMimeType(ClipDescription.MIMETYPE_TEXT_PLAIN) &&
+                 !description.hasMimeType(ClipDescription.MIMETYPE_TEXT_HTML))
+            ) {
+                lastReadStatus = ClipReadStatus.EMPTY
+                return null
+            }
+            val clip = m.primaryClip
+            if (clip == null || clip.itemCount == 0) {
+                lastReadStatus = ClipReadStatus.EMPTY
+                return null
+            }
             val text = clip.getItemAt(0).text?.toString()
-            if (text.isNullOrEmpty()) return null
+            if (text.isNullOrEmpty()) {
+                lastReadStatus = ClipReadStatus.EMPTY
+                return null
+            }
             // The flag lives in the extras of the clip's own description.
             val flagged = clip.description?.extras?.getBoolean(sensitiveKey()) == true ||
                 description.extras?.getBoolean(sensitiveKey()) == true
@@ -138,9 +175,15 @@ class ClipboardWatcher(context: Context, private val onChanged: () -> Unit) {
             if (!flagged && ClipStore.memory.any { it.text == text && it.kind == ClipKind.SENSITIVE }) {
                 kind = ClipKind.SENSITIVE
             }
+            lastReadStatus = ClipReadStatus.SUCCESS
             ClipItem(text, timestamp, kind, true)
-        } catch (_: Exception) {
-            // Not allowed to read right now (e.g. not the current keyboard): treat as empty.
+        } catch (e: SecurityException) {
+            // POCO / HyperOS / Android 10+ background restriction before IME window focus: rejected by system.
+            lastReadStatus = ClipReadStatus.DENIED
+            null
+        } catch (e: Exception) {
+            // Other system exceptions (RemoteException, DeadObjectException, etc.)
+            lastReadStatus = ClipReadStatus.DENIED
             null
         }
     }

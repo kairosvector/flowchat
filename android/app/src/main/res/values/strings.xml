@@ -121,6 +121,9 @@
     <string name="kb_clip_clear">清除</string>
     <string name="kb_clip_clear_confirm">再按一次清除</string>
     <string name="kb_clip_empty">剪貼簿是空的</string>
+    <string name="kb_clip_diag_success">有讀到</string>
+    <string name="kb_clip_diag_empty">讀到空的</string>
+    <string name="kb_clip_diag_denied">被系統拒絕</string>
     <string name="kb_clip_dismiss">不要顯示這筆 ✕</string>
     <string name="kb_clip_paste_cd">貼上：%1$s</string>
     <string name="kb_clip_paste_sensitive_cd">貼上%1$s，已隱藏</string>

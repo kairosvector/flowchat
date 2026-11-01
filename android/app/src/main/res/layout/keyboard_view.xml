@@ -485,6 +485,15 @@
                     android:textColor="@color/kb_on_surface"
                     android:textSize="14sp" />
 
+                <TextView
+                    android:id="@+id/text_clip_diag"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:textColor="@color/kb_on_surface_variant"
+                    android:textSize="12sp"
+                    android:visibility="gone" />
+
                 <View
                     android:layout_width="0dp"
                     android:layout_height="1dp"

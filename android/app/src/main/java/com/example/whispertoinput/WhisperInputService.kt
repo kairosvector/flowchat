@@ -518,6 +518,7 @@ class WhisperInputService : InputMethodService() {
         super.onWindowShown()
         whisperTranscriber.stop()
         whisperKeyboard.reset()
+        whisperKeyboard.onWindowShown()
         recorderManager?.stop()
 
         // If this is the first time calling onWindowShown, it means this IME is just being switched to.
