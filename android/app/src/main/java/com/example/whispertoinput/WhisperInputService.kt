@@ -326,7 +326,9 @@ class WhisperInputService : InputMethodService() {
 
         // Deletes cursor pointed text, or all selected texts
         if (TextUtils.isEmpty(selectedText)) {
-            inputConnection.deleteSurroundingText(1, 0)
+            val before = inputConnection.getTextBeforeCursor(32, 0)
+            val deleteCount = GraphemeClusterDeleter.getDeleteCharCount(before)
+            inputConnection.deleteSurroundingText(deleteCount, 0)
         } else {
             inputConnection.commitText("", 1)
         }
