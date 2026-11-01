@@ -2,6 +2,20 @@
 
 原專案：j3soon/whisper-to-input（GPL-3.0，作者 Yan-Bin Diau、Johnson Sun 等，見原 LICENSE 與 README）。
 
+## 2026-11-01 fork6 第十五輪：剪貼簿 MVP、頂列上次 chip 與淡字、底列對稱句點鍵與 7 欄 Emoji（版本仍是 0.4-fork6，versionCode 24）
+- 剪貼簿 MVP 改版（A1–A3，SPEC_r8 §13）：
+  - 筆數收斂：歷史紀錄上限調整為最近 5 筆（`ClipHistory.MAX_RECORDS = 5`），超過時最舊者自動汰除。
+  - 卡片高度自適應與多行預覽：移除單行限制（`maxLines = 1`），改為最多顯示 3 行（`maxLines = 3`，換行與空格正常排版，超過 3 行末尾以省略號截斷）。卡片高度改為自適應（`wrap_content`，垂直 padding 8dp），在 `clip_scroll`（ScrollView）內可平順垂直滑動。
+  - 點擊貼上與返回：點擊卡片任何區域立即將內容貼入目前輸入框（`onInsertText`）並給予觸覺回饋（`KEYBOARD_TAP`）。點擊底列「← 返回」或頂列 🎤 分頁平順返回大麥克風語音主畫面。敏感內容（密碼／卡號）維持遮蔽機制與 👁 暫時查看 5 秒之安全規則。
+- 頂列待機狀態（B1–B2，SPEC_r8 §22.4）：
+  - 「🕘 上次」chip：換了輸入框（`EditorInfo.packageName` + `fieldId` 與上一筆不同）且在 30 分鐘內，狀態欄顯示上一筆辨識文字（前 40 字，透明底＋1dp `kb_outline` 外框，🕘 圖示與文字 `kb_on_surface_variant`），點一下直接貼上並顯示「已插入」1.5 秒；長按提供「不要顯示這筆」選項。密碼欄與 `IME_FLAG_NO_PERSONALIZED_LEARNING` 欄位不顯示。
+  - 淡字提示：無貼上 chip 與上次 chip 時，狀態欄顯示淡字「說完會自動插入」（13sp, `kb_on_surface_variant`, alpha 0.7, TalkBack 忽略不重複唸）。
+- 視覺與按鍵優化（C1–C3，SPEC_r8 §22）：
+  - 頂列空位修復：頂列舊表情位置（`tab_emoji`）徹底改為 `GONE`，讓 📋 分頁圖示直接緊鄰 🎤，消除 48dp 橘色空位。
+  - 底列對稱與新增句點鍵（做法 A）：切換鍵（`btn_left_action`）縮小為 52×52dp；在空白鍵與 Enter 之間新增獨立「。」句點鍵（`btn_period`，52×52dp，點擊送出全形句點 `commitText("。", 1)`，觸覺 `KEYBOARD_TAP`）；Enter 鍵寬度調整為 52dp，中間空白鍵維持 weight 1（約 164dp），底列達成完美左右對稱（切換 52 | 😊 52 | 空白 164 | 。 52 | Enter 52）。
+  - Emoji 面板排版舒緩：`emojiGridColumns` 由 9 改為 7（如同 Gboard 7 欄設計），圖示加大、拉開間距，解決按鍵太擠不易點擊的問題。
+- versionCode 23→24；簽章維持本機 debug keystore。
+
 ## 2026-11-01 fork6 第十四輪：剪貼簿診斷、Groq 429 減量、emoji 面板與統一返回鍵（版本仍是 0.4-fork6，versionCode 23）
 - 剪貼簿診斷（A1–A3）：
   - 📋 分頁在剪貼簿標題列顯示目前診斷狀態：「（有讀到）」、「（讀到空的）」或「（被系統拒絕）」，解決 POCO / HyperOS 等系統在後台限制剪貼簿時的問題。診斷狀態純字串呈現，不記錄任何內容，不印 log。
