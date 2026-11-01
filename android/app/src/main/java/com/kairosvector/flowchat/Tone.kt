@@ -136,15 +136,21 @@ object ToneRules {
  * with one tone paragraph inserted right before 「特別注意」 (SPEC_r8 §14).
  */
 object TonePrompts {
-    const val VERSION = 4
+    const val VERSION = 5
 
     private const val GUARD_MARK = "特別注意："
 
     const val PRO_TEXT =
+        "語氣：商務工作訊息，清晰得體，句尾依文意加適當標點；拿掉口語語助詞（啦、喔、欸），不加 emoji，原文本來就有的 emoji 保留。"
+
+    const val CHAT_TEXT =
+        "語氣：輕鬆口語，保留助詞（啦、喔、欸、哈哈）與自然斷句；句尾不強制加句號；可在適合處句尾加最多 1 個貼切 emoji（原已有則不加）；不將口語改為書面語。"
+
+    const val PRO_TEXT_V4 =
         "語氣：專業、清楚、有禮，適合工作上的訊息；可以拿掉口語語助詞（啦、喔、欸），" +
             "但不要改成生硬的公文用語；不要加 emoji，原文本來就有的 emoji 保留。"
 
-    const val CHAT_TEXT =
+    const val CHAT_TEXT_V4 =
         "語氣：輕鬆自然的聊天訊息；保留口語語氣和語助詞（啦、喔、欸、耶、哈哈），不要改寫成書面語；" +
             "句子很短時可以省略句尾句號；可以在語氣適合的地方加上最多 1 個貼切的 emoji，放在句尾，" +
             "不要每句都加，也不要用 emoji 取代原本的文字；原文已經有 emoji 就不要再加；" +
@@ -161,6 +167,9 @@ object TonePrompts {
     val PRO: String get() = build(DEFAULT_POLISH_PROMPT, PRO_TEXT)
     val CHAT: String get() = build(DEFAULT_POLISH_PROMPT, CHAT_TEXT)
 
+    val PRO_V4: String get() = build(LEGACY_POLISH_PROMPT_V4, PRO_TEXT_V4)
+    val CHAT_V4: String get() = build(LEGACY_POLISH_PROMPT_V4, CHAT_TEXT_V4)
+
     fun builtinPrompt(id: String): String? = when (id) {
         TONE_PRO -> PRO
         TONE_CHAT -> CHAT
@@ -169,8 +178,8 @@ object TonePrompts {
 
     /** The two tones a fresh install (or a migration) starts with. */
     fun defaultTones(proPrompt: String = PRO): List<Tone> = listOf(
-        Tone(TONE_PRO, "專業", "專業", "工作訊息", proPrompt, builtin = true),
-        Tone(TONE_CHAT, "聊天", "聊天", "口語＋emoji", CHAT, builtin = true)
+        Tone(TONE_PRO, "專業", "專業", "工作訊息", proPrompt, builtin = true, promptVersion = VERSION),
+        Tone(TONE_CHAT, "聊天", "聊天", "口語＋emoji", CHAT, builtin = true, promptVersion = VERSION)
     )
 }
 
@@ -181,6 +190,22 @@ object TonePrompts {
 object ToneMigration {
     data class Outcome(val tones: List<Tone>, val polishTone: String)
 
+    fun isUntouchedPro(prompt: String?): Boolean {
+        if (prompt.isNullOrBlank()) return true
+        return prompt == TonePrompts.PRO ||
+            prompt == TonePrompts.PRO_V4 ||
+            prompt == DEFAULT_POLISH_PROMPT ||
+            prompt == LEGACY_POLISH_PROMPT_V4 ||
+            prompt == LEGACY_POLISH_PROMPT_V2 ||
+            prompt == LEGACY_POLISH_PROMPT_V1
+    }
+
+    fun isUntouchedChat(prompt: String?): Boolean {
+        if (prompt.isNullOrBlank()) return true
+        return prompt == TonePrompts.CHAT ||
+            prompt == TonePrompts.CHAT_V4
+    }
+
     /**
      * [oldPrompt] is the saved `llm-prompt` (null = never saved), [polishEnabled]
      * the saved switch (null = never saved). A prompt that is empty or equals a
@@ -189,14 +214,37 @@ object ToneMigration {
      * new default. Polishing off becomes the tone "off", otherwise 專業.
      */
     fun migrate(oldPrompt: String?, polishEnabled: Boolean?): Outcome {
-        val untouched = oldPrompt == null || oldPrompt.isBlank() ||
-            oldPrompt == DEFAULT_POLISH_PROMPT ||
-            oldPrompt == LEGACY_POLISH_PROMPT_V2 ||
-            oldPrompt == LEGACY_POLISH_PROMPT_V1
-        val pro = if (untouched) TonePrompts.PRO else oldPrompt!!
+        val pro = if (isUntouchedPro(oldPrompt)) TonePrompts.PRO else oldPrompt!!
         return Outcome(
             tones = TonePrompts.defaultTones(pro),
             polishTone = if (polishEnabled == false) TONE_OFF else TONE_PRO
         )
+    }
+
+    /**
+     * Upgrades an existing list of tones to v5:
+     * - Builtin tones that were untouched (or promptVersion < 5 and matching default prompts) are updated to v5 prompts.
+     * - Customized tones (custom id or user-edited prompt) are preserved unchanged.
+     */
+    fun upgradeTones(tones: List<Tone>): List<Tone> {
+        return tones.map { tone ->
+            when (tone.id) {
+                TONE_PRO -> {
+                    if (isUntouchedPro(tone.prompt)) {
+                        tone.copy(prompt = TonePrompts.PRO, promptVersion = TonePrompts.VERSION)
+                    } else {
+                        tone
+                    }
+                }
+                TONE_CHAT -> {
+                    if (isUntouchedChat(tone.prompt)) {
+                        tone.copy(prompt = TonePrompts.CHAT, promptVersion = TonePrompts.VERSION)
+                    } else {
+                        tone
+                    }
+                }
+                else -> tone
+            }
+        }
     }
 }

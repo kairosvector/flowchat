@@ -43,7 +43,8 @@ object PolishPromptMigration {
             val appContext = context.applicationContext
             val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val current = appContext.dataStore.data.first()
-            if (ToneCodec.parse(current[TONES_JSON]) == null) {
+            val parsedTones = ToneCodec.parse(current[TONES_JSON])
+            if (parsedTones == null) {
                 val outcome = ToneMigration.migrate(current[LLM_PROMPT], current[POLISH_ENABLED])
                 appContext.dataStore.edit { settings ->
                     settings[TONES_JSON] = ToneCodec.encode(outcome.tones)
@@ -51,6 +52,13 @@ object PolishPromptMigration {
                         settings[POLISH_TONE] = outcome.polishTone
                     }
                     settings[POLISH_ENABLED] = settings[POLISH_TONE] != TONE_OFF
+                }
+            } else {
+                val upgraded = ToneMigration.upgradeTones(parsedTones)
+                if (upgraded != parsedTones) {
+                    appContext.dataStore.edit { settings ->
+                        settings[TONES_JSON] = ToneCodec.encode(upgraded)
+                    }
                 }
             }
             prefs.edit().putInt(KEY_PROMPT_VERSION, POLISH_PROMPT_VERSION).apply()
