@@ -192,6 +192,7 @@
             style="@style/KbTopKey"
             android:contentDescription="@string/kb_backspace"
             android:src="@drawable/kb_ic_backspace"
+            android:tint="@color/kb_on_surface"
             app:tint="@color/kb_on_surface" />
     </LinearLayout>
 
@@ -782,6 +783,7 @@
             android:paddingBottom="15dp"
             android:scaleType="fitCenter"
             android:src="@drawable/kb_ic_keyboard"
+            android:tint="@color/kb_on_surface_variant"
             app:tint="@color/kb_on_surface_variant" />
 
         <FrameLayout
@@ -802,6 +804,7 @@
                 android:layout_gravity="center"
                 android:importantForAccessibility="no"
                 android:src="@drawable/kb_ic_emoji"
+                android:tint="@color/kb_on_surface_variant"
                 app:tint="@color/kb_on_surface_variant" />
 
             <!-- Replaced state: ← 返回 (SPEC_r8 §22.10) -->
@@ -819,6 +822,7 @@
                     android:layout_height="20dp"
                     android:importantForAccessibility="no"
                     android:src="@drawable/kb_ic_arrow_back"
+                    android:tint="@color/kb_on_primary_container"
                     app:tint="@color/kb_on_primary_container" />
 
                 <TextView
