@@ -88,6 +88,7 @@ private fun isCountedCodePoint(cp: Int): Boolean {
 
 const val DEFAULT_LLM_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
 const val DEFAULT_LLM_MODEL = "qwen/qwen3.8-27b"
+const val DEFAULT_LLM_FALLBACK_MODEL = "openai/gpt-oss-20b"
 
 /** Fork2 STT defaults (Groq + Whisper), used only as read fallbacks. */
 const val DEFAULT_STT_ENDPOINT = "https://api.groq.com/openai/v1/audio/transcriptions"
@@ -158,7 +159,15 @@ data class PolishConfig(
     val endpoint: String,
     val model: String,
     val apiKey: String,
-    val prompt: String
+    val prompt: String,
+    val fallbackModel: String = DEFAULT_LLM_FALLBACK_MODEL
+)
+
+/** Token usage breakdown from the LLM provider (Round 14 §B2). */
+data class TokenUsage(
+    val promptTokens: Int,
+    val completionTokens: Int,
+    val totalTokens: Int
 )
 
 object PolishClient {
@@ -166,14 +175,29 @@ object PolishClient {
 
     private const val TAG = "PolishClient"
 
+    /** The most recent token usage reported by the API (numbers only, never content). */
+    @Volatile
+    var lastTokenUsage: TokenUsage? = null
+        internal set
+
     /**
      * Outcome of one polish call; [Failed.reason] never contains the API key.
      * [Failed.error] is the short status-bar sentence (HTTP code / timeout /
      * no network / other), never the response body.
      */
     sealed class Result {
-        data class Ok(val text: String) : Result()
-        data class Failed(val reason: String, val error: ErrorText) : Result()
+        data class Ok(
+            val text: String,
+            val usage: TokenUsage? = null,
+            val usedFallbackModel: Boolean = false
+        ) : Result()
+
+        data class Failed(
+            val reason: String,
+            val error: ErrorText,
+            val httpCode: Int? = null,
+            val retryAfterSeconds: Int? = null
+        ) : Result()
     }
 
     /**
@@ -209,6 +233,10 @@ object PolishClient {
             val body = JSONObject()
             body.put("model", model)
             body.put("temperature", TEMPERATURE)
+            // Round 14 §B1: Disable reasoning parameter on Qwen models (Groq reasoning_effort="none")
+            if (model.contains("qwen", ignoreCase = true)) {
+                body.put("reasoning_effort", "none")
+            }
             val messages = JSONArray()
             val system = JSONObject()
             system.put("role", "system")
@@ -241,26 +269,64 @@ object PolishClient {
             client.newCall(request).execute().use { response ->
                 val elapsed = System.currentTimeMillis() - started
                 val text = response.body?.string().orEmpty()
+                val retryAfter = response.header("Retry-After")?.toIntOrNull()
                 if (!response.isSuccessful) {
+                    val code = response.code
+                    val errSummary = errorSummary(text)
+                    val errText = ErrorMessageMapper.fromHttp(ErrorStage.POLISH, code, retryAfter)
+                    // Round 14 §B3: If 429, retry with fallback model if configured and remaining time > 500ms
+                    if (code == 429 && config.fallbackModel.isNotBlank() && config.fallbackModel != model) {
+                        val remainingMs = if (callTimeoutMs != null) callTimeoutMs - elapsed else null
+                        if (remainingMs == null || remainingMs > 500) {
+                            Log.i(
+                                TAG,
+                                "Primary polish model hit 429, retrying with fallback model ${config.fallbackModel} (remaining ${remainingMs}ms)"
+                            )
+                            val fallbackConfig = config.copy(model = config.fallbackModel, fallbackModel = "")
+                            val fallbackResult = polishDetailed(rawText, fallbackConfig, httpClient, remainingMs)
+                            if (fallbackResult is Result.Ok) {
+                                return fallbackResult.copy(usedFallbackModel = true)
+                            }
+                            return fallbackResult
+                        }
+                    }
                     return fail(
-                        "HTTP ${response.code} after ${elapsed}ms (${errorSummary(text)})",
-                        ErrorMessageMapper.fromHttp(ErrorStage.POLISH, response.code)
+                        "HTTP $code after ${elapsed}ms ($errSummary)",
+                        errText,
+                        httpCode = code,
+                        retryAfterSeconds = retryAfter
                     )
                 }
-                val content = JSONObject(text)
+                val respJson = JSONObject(text)
+                val usageObj = respJson.optJSONObject("usage")
+                val usage = if (usageObj != null) {
+                    TokenUsage(
+                        promptTokens = usageObj.optInt("prompt_tokens"),
+                        completionTokens = usageObj.optInt("completion_tokens"),
+                        totalTokens = usageObj.optInt("total_tokens")
+                    )
+                } else null
+                lastTokenUsage = usage
+                if (usage != null) {
+                    Log.i(
+                        TAG,
+                        "polish usage tokens: prompt=${usage.promptTokens}, completion=${usage.completionTokens}, total=${usage.totalTokens}"
+                    )
+                }
+                val content = respJson
                     .optJSONArray("choices")
                     ?.optJSONObject(0)
                     ?.optJSONObject("message")
                     ?.optString("content", "")
-                    ?: return fail("HTTP ${response.code} but no choices[0].message.content")
+                    ?: return fail("HTTP ${response.code} but no choices[0].message.content", httpCode = response.code)
                 val unwrapped = unwrap(content)
-                    ?: return fail("empty reply after cleanup (raw reply ${content.length} chars)")
+                    ?: return fail("empty reply after cleanup (raw reply ${content.length} chars)", httpCode = response.code)
                 Log.i(
                     TAG,
                     "polish ok: HTTP ${response.code} in ${elapsed}ms, in ${rawText.length} chars, " +
                         "out ${unwrapped.length} chars, same as input: ${unwrapped == rawText.trim()}"
                 )
-                Result.Ok(unwrapped)
+                Result.Ok(unwrapped, usage)
             }
         } catch (e: java.io.InterruptedIOException) {
             // Includes SocketTimeoutException (connect / read timeout).
@@ -274,10 +340,12 @@ object PolishClient {
 
     private fun fail(
         reason: String,
-        error: ErrorText = ErrorMessageMapper.other(ErrorStage.POLISH)
+        error: ErrorText = ErrorMessageMapper.other(ErrorStage.POLISH),
+        httpCode: Int? = null,
+        retryAfterSeconds: Int? = null
     ): Result.Failed {
         Log.w(TAG, "polish failed: $reason")
-        return Result.Failed(reason, error)
+        return Result.Failed(reason, error, httpCode, retryAfterSeconds)
     }
 
     /** The error type / code of an OpenAI-style error body, never the whole body. */

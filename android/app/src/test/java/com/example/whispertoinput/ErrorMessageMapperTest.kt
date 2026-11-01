@@ -27,6 +27,7 @@ class ErrorMessageMapperTest {
         R.string.kb_err_stage_polish to "kb_err_stage_polish",
         R.string.kb_err_invalid_key to "kb_err_invalid_key",
         R.string.kb_err_rate_limited to "kb_err_rate_limited",
+        R.string.kb_err_rate_limited_retry_after to "kb_err_rate_limited_retry_after",
         R.string.kb_err_server to "kb_err_server",
         R.string.kb_err_timeout to "kb_err_timeout",
         R.string.kb_err_offline to "kb_err_offline",
@@ -34,6 +35,7 @@ class ErrorMessageMapperTest {
         R.string.kb_err_other to "kb_err_other",
         R.string.kb_err_full_invalid_key to "kb_err_full_invalid_key",
         R.string.kb_err_full_rate_limited to "kb_err_full_rate_limited",
+        R.string.kb_err_full_rate_limited_retry_after to "kb_err_full_rate_limited_retry_after",
         R.string.kb_err_full_server to "kb_err_full_server",
         R.string.kb_err_full_http_code to "kb_err_full_http_code"
     )
@@ -72,6 +74,17 @@ class ErrorMessageMapperTest {
             val t = http(stage, 429)
             assertEquals(R.string.kb_err_rate_limited, t.reasonRes)
             assertEquals(R.string.kb_err_full_rate_limited, t.fullReasonRes)
+            assertNull(t.retryAfterSeconds)
+        }
+    }
+
+    @Test
+    fun http429WithRetryAfterShowsCountdown() {
+        for (stage in stages) {
+            val t = ErrorMessageMapper.fromHttp(stage, 429, retryAfterSeconds = 12)
+            assertEquals(R.string.kb_err_rate_limited_retry_after, t.reasonRes)
+            assertEquals(R.string.kb_err_full_rate_limited_retry_after, t.fullReasonRes)
+            assertEquals(12, t.retryAfterSeconds)
         }
     }
 

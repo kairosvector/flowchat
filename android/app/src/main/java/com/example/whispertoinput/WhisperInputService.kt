@@ -67,7 +67,7 @@ class WhisperInputService : InputMethodService() {
 
     private fun transcriptionCallback(
         text: String?, raw: String?, polished: String?, note: PolishNote, polishError: ErrorDisplay?,
-        toneId: String?
+        toneId: String?, usedFallbackModel: Boolean = false
     ) {
         if (!text.isNullOrEmpty()) {
             val mode = ResultFlow.forNote(note)
@@ -75,7 +75,7 @@ class WhisperInputService : InputMethodService() {
                 ResultMode.INSERTED_POLISHED -> {
                     // Polished OK: text inserted directly, card shown with tone & actions
                     currentInputConnection?.commitText(text, 1)
-                    whisperKeyboard.showInsertedResult(raw ?: text.trim(), polished ?: text, text, toneId)
+                    whisperKeyboard.showInsertedResult(raw ?: text.trim(), polished ?: text, text, toneId, usedFallbackModel)
                     switchBackIfWanted()
                 }
                 ResultMode.INSERTED_FAILED_RETRY -> {
@@ -309,8 +309,8 @@ class WhisperInputService : InputMethodService() {
             recordedAudioFilename,
             audioMediaType,
             attachToEnd,
-            { text, raw, polished, note, polishError, toneId ->
-                transcriptionCallback(text, raw, polished, note, polishError, toneId)
+            { text, raw, polished, note, polishError, toneId, usedFallback ->
+                transcriptionCallback(text, raw, polished, note, polishError, toneId, usedFallback)
             },
             { transcriptionExceptionCallback(it) },
             { stage, text -> onPolishStage(stage, text) })

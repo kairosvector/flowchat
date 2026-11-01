@@ -59,24 +59,53 @@ data class ErrorText(
     val stage: ErrorStage,
     @StringRes val reasonRes: Int,
     val code: Int? = null,
-    @StringRes val fullReasonRes: Int = reasonRes
+    @StringRes val fullReasonRes: Int = reasonRes,
+    val retryAfterSeconds: Int? = null
 ) {
-    fun resolve(context: Context): String = context.getString(stage.prefixRes, reason(context, reasonRes))
+    fun resolve(context: Context): String =
+        if (retryAfterSeconds != null && retryAfterSeconds > 0) {
+            context.getString(reasonRes, retryAfterSeconds)
+        } else {
+            context.getString(stage.prefixRes, reason(context, reasonRes))
+        }
 
-    fun resolveFull(context: Context): String = context.getString(stage.prefixRes, reason(context, fullReasonRes))
+    fun resolveFull(context: Context): String =
+        if (retryAfterSeconds != null && retryAfterSeconds > 0) {
+            context.getString(fullReasonRes, retryAfterSeconds)
+        } else {
+            context.getString(stage.prefixRes, reason(context, fullReasonRes))
+        }
 
     fun display(context: Context): ErrorDisplay =
-        ErrorDisplay(resolve(context), resolveFull(context), reasonRes == R.string.kb_err_rate_limited)
+        ErrorDisplay(
+            resolve(context),
+            resolveFull(context),
+            reasonRes == R.string.kb_err_rate_limited || reasonRes == R.string.kb_err_rate_limited_retry_after
+        )
 
     private fun reason(context: Context, res: Int): String =
-        if (code != null) context.getString(res, code) else context.getString(res)
+        if (retryAfterSeconds != null) context.getString(res, retryAfterSeconds)
+        else if (code != null) context.getString(res, code)
+        else context.getString(res)
 }
 
 /** Pure mapping from "what went wrong" to the sentence shown on the keyboard (no Android needed). */
 object ErrorMessageMapper {
-    fun fromHttp(stage: ErrorStage, code: Int): ErrorText = when {
+    fun fromHttp(stage: ErrorStage, code: Int, retryAfterSeconds: Int? = null): ErrorText = when {
         code == 401 || code == 403 -> ErrorText(stage, R.string.kb_err_invalid_key, code, R.string.kb_err_full_invalid_key)
-        code == 429 -> ErrorText(stage, R.string.kb_err_rate_limited, code, R.string.kb_err_full_rate_limited)
+        code == 429 -> {
+            if (retryAfterSeconds != null && retryAfterSeconds > 0) {
+                ErrorText(
+                    stage,
+                    R.string.kb_err_rate_limited_retry_after,
+                    code,
+                    R.string.kb_err_full_rate_limited_retry_after,
+                    retryAfterSeconds
+                )
+            } else {
+                ErrorText(stage, R.string.kb_err_rate_limited, code, R.string.kb_err_full_rate_limited)
+            }
+        }
         code in 500..599 -> ErrorText(stage, R.string.kb_err_server, code, R.string.kb_err_full_server)
         else -> ErrorText(stage, R.string.kb_err_http_code, code, R.string.kb_err_full_http_code)
     }

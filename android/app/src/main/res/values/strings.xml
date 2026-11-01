@@ -92,12 +92,17 @@
     <string name="kb_err_stage_polish">潤飾失敗：%1$s</string>
     <string name="kb_err_invalid_key">金鑰無效</string>
     <string name="kb_err_rate_limited">次數超量</string>
+    <string name="kb_err_rate_limited_retry_after">%1$d 秒後可再試</string>
     <string name="kb_err_server">服務異常</string>
     <string name="kb_err_timeout">連線逾時</string>
     <string name="kb_err_offline">沒有網路</string>
     <string name="kb_err_http_code">錯誤 %1$d</string>
     <string name="kb_err_full_invalid_key">API Key 無效（HTTP %1$d）</string>
     <string name="kb_err_full_rate_limited">次數超量，請稍後再試（HTTP %1$d）</string>
+    <string name="kb_err_full_rate_limited_retry_after">次數超量，請於 %1$d 秒後再試</string>
+    <string name="kb_status_fallback_model">已改用備用模型</string>
+    <string name="st_fallback_model">備用潤飾模型</string>
+    <string name="st_fallback_model_helper">主模型遇 429 次數超量時自動切換重試</string>
     <string name="kb_err_full_server">伺服器錯誤（HTTP %1$d）</string>
     <string name="kb_err_full_http_code">發生錯誤（代碼 %1$d）</string>
     <string name="kb_hint_rate_limited">請稍後再試</string>

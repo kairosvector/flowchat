@@ -73,6 +73,7 @@ class WhisperTranscriber {
         val polishEnabled: Boolean,
         val llmEndpoint: String,
         val llmModel: String,
+        val llmFallbackModel: String,
         val llmApiKey: String,
         val llmPrompt: String,
         val toneId: String?
@@ -90,7 +91,8 @@ class WhisperTranscriber {
         val polishedCore: String?,
         val polishNote: PolishNote,
         val polishError: ErrorText?,
-        val toneId: String?
+        val toneId: String?,
+        val usedFallbackModel: Boolean = false
     )
 
     private val TAG = "WhisperTranscriber"
@@ -101,13 +103,13 @@ class WhisperTranscriber {
         filename: String,
         mediaType: String,
         attachToEnd: String,
-        callback: (text: String?, raw: String?, polished: String?, note: PolishNote, polishError: ErrorDisplay?, toneId: String?) -> Unit,
+        callback: (text: String?, raw: String?, polished: String?, note: PolishNote, polishError: ErrorDisplay?, toneId: String?, usedFallback: Boolean) -> Unit,
         exceptionCallback: (ErrorDisplay) -> Unit,
         stageCallback: ((PolishStage, String?) -> Unit)? = null
     ) {
         suspend fun makeWhisperRequest(): Outcome {
             // Retrieve configs
-            val (endpoint, languageCode, speechToTextBackend, apiKey, model, postprocessing, addTrailingSpace, polishEnabled, llmEndpoint, llmModel, llmApiKey, llmPrompt, toneId) = context.dataStore.data.map { preferences: Preferences ->
+            val (endpoint, languageCode, speechToTextBackend, apiKey, model, postprocessing, addTrailingSpace, polishEnabled, llmEndpoint, llmModel, llmFallbackModel, llmApiKey, llmPrompt, toneId) = context.dataStore.data.map { preferences: Preferences ->
                 // Round 11b: the current tone decides whether and how to polish.
                 val tones = ToneStore.resolve(preferences)
                 Config(
@@ -125,6 +127,7 @@ class WhisperTranscriber {
                     tones.polishOn,
                     preferences[LLM_ENDPOINT] ?: DEFAULT_LLM_ENDPOINT,
                     preferences[LLM_MODEL] ?: DEFAULT_LLM_MODEL,
+                    preferences[LLM_FALLBACK_MODEL] ?: DEFAULT_LLM_FALLBACK_MODEL,
                     preferences[LLM_API_KEY] ?: "",
                     (tones.current ?: tones.tones.first()).prompt,
                     tones.current?.id
@@ -185,6 +188,7 @@ class WhisperTranscriber {
             var polishedCore: String? = null
             var polishNote = PolishNote.OFF
             var polishError: ErrorText? = null
+            var usedFallback = false
             val countedChars = countPolishChars(trimmedCore)
             if (polishEnabled && countedChars >= POLISH_MIN_COUNTED_CHARS) {
                 stageCallback?.invoke(PolishStage.POLISHING, null)
@@ -196,7 +200,8 @@ class WhisperTranscriber {
                         endpoint = llmEndpoint,
                         model = llmModel,
                         apiKey = llmKey,
-                        prompt = llmPrompt
+                        prompt = llmPrompt,
+                        fallbackModel = llmFallbackModel
                     ),
                     callTimeoutMs = POLISH_TIMEOUT_MS
                 )
@@ -204,6 +209,7 @@ class WhisperTranscriber {
                     is PolishClient.Result.Ok -> {
                         polishedCore = polishResult.text
                         polishNote = PolishNote.OK
+                        usedFallback = polishResult.usedFallbackModel
                     }
                     is PolishClient.Result.Failed -> {
                         polishError = polishResult.error
@@ -225,7 +231,7 @@ class WhisperTranscriber {
                 // Only used for space key and enter key.
                 finalCore + attachToEnd
             }
-            return Outcome(textWithAttach, trimmedCore, polishedCore, polishNote, polishError, toneId)
+            return Outcome(textWithAttach, trimmedCore, polishedCore, polishNote, polishError, toneId, usedFallback)
         }
 
         // Create a cancellable job in the main thread (for UI updating)
@@ -267,7 +273,8 @@ class WhisperTranscriber {
                 outcome?.polishedCore,
                 outcome?.polishNote ?: PolishNote.OFF,
                 outcome?.polishError?.display(context),
-                outcome?.toneId
+                outcome?.toneId,
+                outcome?.usedFallbackModel ?: false
             )
 
             // A short sentence for the status bar. The exception message
@@ -306,10 +313,10 @@ class WhisperTranscriber {
         context: Context,
         rawText: String,
         toneId: String?,
-        callback: (String?, ErrorDisplay?) -> Unit
+        callback: (String?, ErrorDisplay?, Boolean) -> Unit
     ) {
         val job = CoroutineScope(Dispatchers.Main).launch {
-            val (polished, error) = withContext(Dispatchers.IO) {
+            val (polished, error, usedFallback) = withContext(Dispatchers.IO) {
                 try {
                     val prefs = context.dataStore.data.first()
                     val sttKey = prefs[API_KEY] ?: ""
@@ -321,25 +328,26 @@ class WhisperTranscriber {
                             endpoint = prefs[LLM_ENDPOINT] ?: DEFAULT_LLM_ENDPOINT,
                             model = prefs[LLM_MODEL] ?: DEFAULT_LLM_MODEL,
                             apiKey = (prefs[LLM_API_KEY] ?: "").ifBlank { sttKey },
-                            prompt = (tones.byId(toneId) ?: tones.current ?: tones.tones.first()).prompt
+                            prompt = (tones.byId(toneId) ?: tones.current ?: tones.tones.first()).prompt,
+                            fallbackModel = prefs[LLM_FALLBACK_MODEL] ?: DEFAULT_LLM_FALLBACK_MODEL
                         ),
                         callTimeoutMs = POLISH_TIMEOUT_MS
                     )
                     when (result) {
                         is PolishClient.Result.Ok -> {
                             TranscriptionHistory.add(context, rawText, result.text)
-                            Pair<String?, ErrorText?>(result.text, null)
+                            Triple<String?, ErrorText?, Boolean>(result.text, null, result.usedFallbackModel)
                         }
-                        is PolishClient.Result.Failed -> Pair<String?, ErrorText?>(null, result.error)
+                        is PolishClient.Result.Failed -> Triple<String?, ErrorText?, Boolean>(null, result.error, false)
                     }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
                     Log.e(TAG, ErrorMessageMapper.logLine(ErrorStage.POLISH, e))
-                    Pair<String?, ErrorText?>(null, ErrorMessageMapper.fromThrowable(ErrorStage.POLISH, e))
+                    Triple<String?, ErrorText?, Boolean>(null, ErrorMessageMapper.fromThrowable(ErrorStage.POLISH, e), false)
                 }
             }
-            callback(polished, error?.display(context))
+            callback(polished, error?.display(context), usedFallback)
         }
         registerTranscriptionJob(job)
     }

@@ -108,6 +108,7 @@ val POSTPROCESSING = stringPreferencesKey("postprocessing")
 val POLISH_ENABLED = booleanPreferencesKey("polish-enabled")
 val LLM_ENDPOINT = stringPreferencesKey("llm-endpoint")
 val LLM_MODEL = stringPreferencesKey("llm-model")
+val LLM_FALLBACK_MODEL = stringPreferencesKey("llm-fallback-model")
 val LLM_API_KEY = stringPreferencesKey("llm-api-key")
 val LLM_PROMPT = stringPreferencesKey("llm-prompt")
 // Round 11b: the AI tones (SPEC_r8 §15). tones-json is the ordered list,
@@ -167,6 +168,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var fieldLanguageCustom: TextSetting
     private lateinit var fieldLlmEndpoint: TextSetting
     private lateinit var fieldLlmModel: TextSetting
+    private lateinit var fieldLlmFallbackModel: TextSetting
     private lateinit var fieldLlmKey: TextSetting
     private val allFields = mutableListOf<TextSetting>()
     private val skippedFields = linkedSetOf<String>()
@@ -563,6 +565,11 @@ class MainActivity : AppCompatActivity() {
             card = { R.id.card_ai }, isActive = { polishEnabled },
             validate = { if (it.isBlank()) R.string.st_err_model else null }
         )
+        fieldLlmFallbackModel = TextSetting(
+            tilOf(R.id.til_llm_fallback_model), findViewById(R.id.edit_llm_fallback_model), LLM_FALLBACK_MODEL, R.string.st_fallback_model,
+            card = { R.id.card_ai }, isActive = { polishEnabled },
+            validate = { if (it.isBlank()) R.string.st_err_model else null }
+        )
         fieldLlmKey = TextSetting(
             tilOf(R.id.til_llm_key), findViewById(R.id.edit_llm_key), LLM_API_KEY, R.string.st_ai_key,
             card = { R.id.card_ai }, isActive = { polishEnabled }, transform = { it.trim() }
@@ -576,12 +583,13 @@ class MainActivity : AppCompatActivity() {
         fieldLanguageCustom.bind(if (LanguageSettings.isBuiltIn(language) || language == SettingsOptions.LANGUAGE_MULTI) "" else language)
         fieldLlmEndpoint.bind(prefs[LLM_ENDPOINT] ?: DEFAULT_LLM_ENDPOINT)
         fieldLlmModel.bind(prefs[LLM_MODEL] ?: DEFAULT_LLM_MODEL)
+        fieldLlmFallbackModel.bind(prefs[LLM_FALLBACK_MODEL] ?: DEFAULT_LLM_FALLBACK_MODEL)
         fieldLlmKey.bind(prefs[LLM_API_KEY].orEmpty())
         // "saved" for the language field is the language itself.
         fieldLanguageCustom.saved = language
         allFields += listOf(
             fieldEndpoint, fieldApiKey, fieldModel, fieldLanguageCustom,
-            fieldLlmEndpoint, fieldLlmModel, fieldLlmKey
+            fieldLlmEndpoint, fieldLlmModel, fieldLlmFallbackModel, fieldLlmKey
         )
 
         // API keys: only the last 4 characters are visible until the eye is pressed.
