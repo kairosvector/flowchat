@@ -901,20 +901,39 @@
                 android:textSize="13sp" />
         </LinearLayout>
 
-        <TextView
+        <FrameLayout
             android:id="@+id/btn_period"
             android:layout_width="52dp"
             android:layout_height="52dp"
             android:layout_marginStart="6dp"
             android:background="@drawable/kb_bg_key"
             android:clickable="true"
-            android:focusable="true"
-            android:gravity="center"
-            android:text="。"
-            android:textColor="@color/kb_on_surface"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:contentDescription="@string/kb_period_cd" />
+            android:focusable="true">
+
+            <TextView
+                android:id="@+id/btn_period_text"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:text="。"
+                android:textColor="@color/kb_on_surface"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:importantForAccessibility="no" />
+
+            <com.kairosvector.flowchat.keyboard.BackspaceButton
+                android:id="@+id/btn_period_backspace"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@null"
+                android:contentDescription="@string/kb_backspace"
+                android:padding="14dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/kb_ic_backspace"
+                android:tint="@color/kb_on_surface"
+                app:tint="@color/kb_on_surface"
+                android:visibility="gone" />
+        </FrameLayout>
 
         <ImageButton
             android:id="@+id/btn_enter"

@@ -371,8 +371,11 @@ class WhisperKeyboard {
     private var buttonEmojiIcon: ImageView? = null
     private var buttonEmojiBackContent: View? = null
     private var labelEmojiBack: TextView? = null
+    private var topRow: View? = null
     private var buttonSpaceBar: View? = null
-    private var buttonPeriod: TextView? = null
+    private var buttonPeriod: View? = null
+    private var buttonPeriodText: TextView? = null
+    private var buttonPeriodBackspace: BackspaceButton? = null
     private var buttonBackspace: BackspaceButton? = null
     private var buttonEnter: ImageButton? = null
     private var emojiPanel: View? = null
@@ -476,8 +479,11 @@ class WhisperKeyboard {
         buttonEmojiIcon = root.findViewById(R.id.btn_emoji_icon)
         buttonEmojiBackContent = root.findViewById(R.id.btn_emoji_back_content)
         labelEmojiBack = root.findViewById(R.id.label_emoji_back)
+        topRow = root.findViewById(R.id.top_row)
         buttonSpaceBar = root.findViewById(R.id.btn_space_bar)
         buttonPeriod = root.findViewById(R.id.btn_period)
+        buttonPeriodText = root.findViewById(R.id.btn_period_text)
+        buttonPeriodBackspace = root.findViewById(R.id.btn_period_backspace)
         buttonBackspace = root.findViewById(R.id.btn_backspace)
         buttonEnter = root.findViewById(R.id.btn_enter)
         emojiPanel = root.findViewById<View>(R.id.emoji_panel)
@@ -532,6 +538,10 @@ class WhisperKeyboard {
         }
         buttonSpaceBar!!.setOnClickListener { onButtonSpaceBarClick() }
         buttonPeriod?.setOnClickListener { onButtonPeriodClick() }
+        buttonPeriodBackspace?.setBackspaceCallback(
+            { if (!closeOverlayIfOpen()) { collapseInserted(); this.onButtonBackspace() } },
+            { if (!closeOverlayIfOpen()) { collapseInserted(); this.onButtonBackspaceWord() } }
+        )
         buttonEnter!!.setOnClickListener { onButtonEnterClick() }
         buttonBackspace!!.setBackspaceCallback(
             { if (!closeOverlayIfOpen()) { collapseInserted(); this.onButtonBackspace() } },
@@ -874,9 +884,12 @@ class WhisperKeyboard {
         val showEmoji = tab == Tab.Emoji && !showCard
         val showClip = tab == Tab.Clip && !showCard && !showEmoji
 
+        // A1: When in Emoji mode, hide top_row to free 48dp so middle_area/emoji_panel expands to 204dp
+        topRow?.visibility = if (showEmoji) View.GONE else View.VISIBLE
+
         // The tone key is locked in some states: an open menu goes with it.
         if (overlay != Overlay.None && !toneKeyEnabled(s)) closeOverlay(animated = false, rerender = false)
-        renderTopRow(context, s)
+        if (!showEmoji) renderTopRow(context, s)
 
         setGroupVisible(groupMain, !(showCard || showClip || showEmoji), appearMs = 150, card = false)
         setGroupVisible(groupClip, showClip, appearMs = 120, card = false)
@@ -1192,6 +1205,22 @@ class WhisperKeyboard {
             }
         }
         renderEmojiKey(context, s)
+        renderPeriodKey(context, s)
+    }
+
+    private fun renderPeriodKey(context: Context, s: UiState) {
+        val isEmoji = (tab == Tab.Emoji) && (s != UiState.Inserted)
+        if (isEmoji) {
+            buttonPeriodText?.visibility = View.GONE
+            buttonPeriodBackspace?.visibility = View.VISIBLE
+            buttonPeriod?.contentDescription = null
+            buttonPeriod?.isClickable = false
+        } else {
+            buttonPeriodText?.visibility = View.VISIBLE
+            buttonPeriodBackspace?.visibility = View.GONE
+            buttonPeriod?.contentDescription = context.getString(R.string.kb_period_cd)
+            buttonPeriod?.isClickable = true
+        }
     }
 
     private fun renderEmojiKey(context: Context, s: UiState) {
