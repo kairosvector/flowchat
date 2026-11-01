@@ -4,14 +4,14 @@ plugins {
 }
 
 android {
-    namespace = "com.example.whispertoinput"
+    namespace = "com.kairosvector.flowchat"
     compileSdk = 34
     // Fork build-only: AGP 8.1.2 defaults to build-tools 33.0.1, which
     // is not in this SDK; 34.0.0 is installed and changes no app behavior.
     buildToolsVersion = "34.0.0"
 
     defaultConfig {
-        applicationId = "com.example.whispertoinput"
+        applicationId = "com.kairosvector.flowchat"
         minSdk = 24
         targetSdk = 34
         // Fork: bumped so this build is distinguishable from upstream v0.4.

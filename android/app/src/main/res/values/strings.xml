@@ -1,6 +1,6 @@
 <resources>
     <!-- General -->
-    <string name="app_name">Whisper To Input</string>
+    <string name="app_name">FlowChat</string>
     <string name="enter_text">Enter Text</string>
     <string name="whisper_to_input">Whisper To Input</string>
     <string name="empty_string" />

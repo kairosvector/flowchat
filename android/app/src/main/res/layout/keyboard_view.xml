@@ -224,7 +224,7 @@
                 android:textStyle="bold" />
         </LinearLayout>
 
-        <com.example.whispertoinput.keyboard.BackspaceButton
+        <com.kairosvector.flowchat.keyboard.BackspaceButton
             android:id="@+id/btn_backspace"
             style="@style/KbTopKey"
             android:contentDescription="@string/kb_backspace"
@@ -298,7 +298,7 @@
                             android:textSize="11sp" />
                     </FrameLayout>
 
-                    <com.example.whispertoinput.keyboard.WaveformView
+                    <com.kairosvector.flowchat.keyboard.WaveformView
                         android:id="@+id/wave_left"
                         android:layout_width="84dp"
                         android:layout_height="56dp"
@@ -314,14 +314,14 @@
                     android:clipChildren="false"
                     android:clipToPadding="false">
 
-                    <com.example.whispertoinput.keyboard.PulseRingView
+                    <com.kairosvector.flowchat.keyboard.PulseRingView
                         android:id="@+id/pulse_rings"
                         android:layout_width="160dp"
                         android:layout_height="160dp"
                         android:layout_gravity="center"
                         android:visibility="gone" />
 
-                    <com.example.whispertoinput.keyboard.SpinnerRingView
+                    <com.kairosvector.flowchat.keyboard.SpinnerRingView
                         android:id="@+id/spinner_ring"
                         android:layout_width="124dp"
                         android:layout_height="124dp"
@@ -380,7 +380,7 @@
                             android:textSize="11sp" />
                     </FrameLayout>
 
-                    <com.example.whispertoinput.keyboard.WaveformView
+                    <com.kairosvector.flowchat.keyboard.WaveformView
                         android:id="@+id/wave_right"
                         android:layout_width="84dp"
                         android:layout_height="56dp"
