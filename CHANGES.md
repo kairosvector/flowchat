@@ -2,6 +2,27 @@
 
 原專案：j3soon/whisper-to-input（GPL-3.0，作者 Yan-Bin Diau、Johnson Sun 等，見原 LICENSE 與 README）。
 
+## 2026-11-01 fork6 第十四輪：剪貼簿診斷、Groq 429 減量、emoji 面板與統一返回鍵（版本仍是 0.4-fork6，versionCode 23）
+- 剪貼簿診斷（A1–A3）：
+  - 📋 分頁在剪貼簿標題列顯示目前診斷狀態：「（有讀到）」、「（讀到空的）」或「（被系統拒絕）」，解決 POCO / HyperOS 等系統在後台限制剪貼簿時的問題。診斷狀態純字串呈現，不記錄任何內容，不印 log。
+  - 改善讀取時機：在 `onWindowShown` 後觸發更新，並延遲 150ms 重新嘗試讀取一次；`ClipboardWatcher` 區分 `SecurityException` 與其他例外，避免靜默吞掉。
+  - 剪貼簿分頁即使沒有項目也不會直接自動 fallback 到歷史紀錄，使用者可清楚看見當前讀取診斷。
+- Groq 429 減量與備用潤飾模型（B1–B4）：
+  - `PolishClient` 對 Qwen 系列模型送出 `reasoning_effort="none"` 關閉推理 token 產生，大幅降低 token 消耗並保留 `<think>` 標籤剝除保護。
+  - 記錄每次 API 回應之 `usage`（prompt_tokens、completion_tokens、total_tokens）數字至 Logcat 與回報。
+  - 設定頁新增「備用潤飾模型」（預設 `openai/gpt-oss-20b`，同一把 API key），當主模型遭遇 HTTP 429 時自動切換重試一次（守住 8 秒總時限）；成功時狀態列顯示「已改用備用模型」，皆失敗則直接插入原文。
+  - 遭遇 429 且回應包含 `Retry-After` 標頭時，狀態列精確顯示「N 秒後可再試」。
+- emoji 面板與字素退格（C1–C4，SPEC_r8 §22）：
+  - 底列新增常駐 😊 鍵（412dp 基準：切換 72dp｜😊 52dp｜空白 182dp weight 1｜Enter 72dp，間距 6dp）。
+  - 中間卡片區整合官方 `androidx.emoji2.emojipicker.EmojiPickerView`，包含類別列、最近使用、膚色 popup 與 TalkBack 支援。
+  - 刪除鍵改用 `android.icu.text.BreakIterator`（JVM 具備完整 fallback 演算與單元測試），一次刪除一個完整字素（包括 👨‍👩‍👧、❤️、🇹🇼 等複合 emoji 不留殘字）。
+  - 頂列 56–104 維持 INVISIBLE 不動。
+- 統一「← 返回」按鈕（D1–D3，SPEC_r8 §22.10）：
+  - 只要中間卡片區被整頁替換（emoji 面板、📋 剪貼簿／紀錄、結果卡 INSERTED／REPOLISHING、指令檢視），底列 😊 格（86,220,52,52）一律切換為「← 返回」（`kb_primary_container` 底色、`kb_ic_arrow_back` 與 11sp「返回」），按了統一回到語音主畫面。
+  - 取代 emoji 面板原本的 🎤 按鍵；結果卡第 4 格「✕ 收起」移除留空（由「← 返回」統一收起卡片）。
+  - TalkBack 角色與標籤：唸「返回語音輸入，按鈕」，按了播報「已回到語音輸入」並將無障礙焦點移至大麥克風。
+- versionCode 22→23；簽章維持本機 debug keystore。
+
 ## 2026-10-31 fork6 第十三輪：講完自動插入、語氣選單捲動、設計修正（版本仍是 0.4-fork6，versionCode 22）
 - 講完自動插入（SPEC_r8 §21）：徹底移除 RESULT_PENDING 與 EnterAction。轉寫與潤飾完成後立即用 `commitText` 插入輸入框，只插一次；AI 開啟時等待潤飾（最多 8 秒逾時，逾時插原文並標記失敗）；AI 關閉或短句（少於 4 字）直接插入原文且不顯示卡片（回 IDLE）。
 - 新版四格結果卡（INSERTED）：
