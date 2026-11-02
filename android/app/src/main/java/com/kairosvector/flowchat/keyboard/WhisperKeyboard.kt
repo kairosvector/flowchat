@@ -41,6 +41,7 @@ import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.widget.ImageButton
 import android.widget.ImageView
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -367,15 +368,16 @@ class WhisperKeyboard {
     private var repolishShimmerAnimator: ValueAnimator? = null
 
     private var buttonLeftAction: ImageButton? = null
+    private var buttonTopBack: ImageButton? = null
+    private var topMiddleSlot: View? = null
+    private var statusSlot: View? = null
+    private var navClipHeader: View? = null
+    private var navEmojiHeader: FrameLayout? = null
     private var buttonEmoji: View? = null
     private var buttonEmojiIcon: ImageView? = null
-    private var buttonEmojiBackContent: View? = null
-    private var labelEmojiBack: TextView? = null
     private var topRow: View? = null
     private var buttonSpaceBar: View? = null
     private var buttonPeriod: View? = null
-    private var buttonPeriodText: TextView? = null
-    private var buttonPeriodBackspace: BackspaceButton? = null
     private var buttonBackspace: BackspaceButton? = null
     private var buttonEnter: ImageButton? = null
     private var emojiPanel: View? = null
@@ -474,16 +476,17 @@ class WhisperKeyboard {
         actionCollapse = root.findViewById(R.id.action_collapse)
         resultScroll = root.findViewById(R.id.result_scroll)
 
+        buttonTopBack = root.findViewById<ImageButton>(R.id.btn_top_back)
+        topMiddleSlot = root.findViewById<View>(R.id.top_middle_slot)
+        statusSlot = root.findViewById<View>(R.id.status_slot)
+        navClipHeader = root.findViewById<View>(R.id.nav_clip_header)
+        navEmojiHeader = root.findViewById<FrameLayout>(R.id.nav_emoji_header)
         buttonLeftAction = root.findViewById(R.id.btn_left_action)
         buttonEmoji = root.findViewById<View>(R.id.btn_emoji)
         buttonEmojiIcon = root.findViewById(R.id.btn_emoji_icon)
-        buttonEmojiBackContent = root.findViewById(R.id.btn_emoji_back_content)
-        labelEmojiBack = root.findViewById(R.id.label_emoji_back)
         topRow = root.findViewById(R.id.top_row)
         buttonSpaceBar = root.findViewById(R.id.btn_space_bar)
         buttonPeriod = root.findViewById(R.id.btn_period)
-        buttonPeriodText = root.findViewById(R.id.btn_period_text)
-        buttonPeriodBackspace = root.findViewById(R.id.btn_period_backspace)
         buttonBackspace = root.findViewById(R.id.btn_backspace)
         buttonEnter = root.findViewById(R.id.btn_enter)
         emojiPanel = root.findViewById<View>(R.id.emoji_panel)
@@ -536,12 +539,12 @@ class WhisperKeyboard {
                 onInsertText(emoji)
             }
         }
+        buttonTopBack?.setOnClickListener { onReturnToVoice() }
+        emojiPickerView?.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            reparentEmojiHeaderIfNeeded()
+        }
         buttonSpaceBar!!.setOnClickListener { onButtonSpaceBarClick() }
         buttonPeriod?.setOnClickListener { onButtonPeriodClick() }
-        buttonPeriodBackspace?.setBackspaceCallback(
-            { if (!closeOverlayIfOpen()) { collapseInserted(); this.onButtonBackspace() } },
-            { if (!closeOverlayIfOpen()) { collapseInserted(); this.onButtonBackspaceWord() } }
-        )
         buttonEnter!!.setOnClickListener { onButtonEnterClick() }
         buttonBackspace!!.setBackspaceCallback(
             { if (!closeOverlayIfOpen()) { collapseInserted(); this.onButtonBackspace() } },
@@ -883,13 +886,25 @@ class WhisperKeyboard {
         val showCard = s == UiState.Inserted
         val showEmoji = tab == Tab.Emoji && !showCard
         val showClip = tab == Tab.Clip && !showCard && !showEmoji
+        val isSubPanel = showEmoji || showClip || showCard
 
-        // A1: When in Emoji mode, hide top_row to free 48dp so middle_area/emoji_panel expands to 204dp
-        topRow?.visibility = if (showEmoji) View.GONE else View.VISIBLE
+        // A1: Top row is permanently VISIBLE, switching between voice tabs and sub-panel navigation bar
+        topRow?.visibility = View.VISIBLE
+        buttonTopBack?.visibility = if (isSubPanel) View.VISIBLE else View.GONE
+        tabVoice?.visibility = if (isSubPanel) View.GONE else View.VISIBLE
+        tabClip?.visibility = if (isSubPanel) View.GONE else View.VISIBLE
+
+        buttonTone?.visibility = if (isSubPanel) View.GONE else View.VISIBLE
+        buttonBackspace?.visibility = View.VISIBLE
+
+        statusSlot?.visibility = if (showClip || showEmoji) View.GONE else View.VISIBLE
+        navClipHeader?.visibility = if (showClip) View.VISIBLE else View.GONE
+        navEmojiHeader?.visibility = if (showEmoji) View.VISIBLE else View.GONE
+        if (showEmoji) reparentEmojiHeaderIfNeeded()
 
         // The tone key is locked in some states: an open menu goes with it.
         if (overlay != Overlay.None && !toneKeyEnabled(s)) closeOverlay(animated = false, rerender = false)
-        if (!showEmoji) renderTopRow(context, s)
+        renderTopRow(context, s)
 
         setGroupVisible(groupMain, !(showCard || showClip || showEmoji), appearMs = 150, card = false)
         setGroupVisible(groupClip, showClip, appearMs = 120, card = false)
@@ -945,6 +960,23 @@ class WhisperKeyboard {
         }
     }
 
+    private fun reparentEmojiHeaderIfNeeded() {
+        val picker = emojiPickerView ?: return
+        val navContainer = navEmojiHeader ?: return
+        val header = picker.findViewById<View>(androidx.emoji2.emojipicker.R.id.emoji_picker_header) ?: return
+        if (header.parent != navContainer) {
+            (header.parent as? ViewGroup)?.removeView(header)
+            navContainer.removeAllViews()
+            val lp = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            ).apply {
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            navContainer.addView(header, lp)
+        }
+    }
+
     private fun renderTopRow(context: Context, s: UiState) {
         val voice = tabVoice
         val clip = tabClip
@@ -975,6 +1007,9 @@ class WhisperKeyboard {
                 setKeyEnabled(tone, false)
                 setKeyEnabled(backspace, false)
             }
+        }
+        if (tab == Tab.Emoji || tab == Tab.Clip) {
+            setKeyEnabled(backspace, true)
         }
         // The prompt viewer covers the keyboard: tabs and backspace wait.
         if (overlay == Overlay.Viewer) {
@@ -1209,55 +1244,25 @@ class WhisperKeyboard {
     }
 
     private fun renderPeriodKey(context: Context, s: UiState) {
-        val isEmoji = (tab == Tab.Emoji) && (s != UiState.Inserted)
-        if (isEmoji) {
-            buttonPeriodText?.visibility = View.GONE
-            buttonPeriodBackspace?.visibility = View.VISIBLE
-            buttonPeriod?.contentDescription = null
-            buttonPeriod?.isClickable = false
-        } else {
-            buttonPeriodText?.visibility = View.VISIBLE
-            buttonPeriodBackspace?.visibility = View.GONE
-            buttonPeriod?.contentDescription = context.getString(R.string.kb_period_cd)
-            buttonPeriod?.isClickable = true
-        }
+        buttonPeriod?.contentDescription = context.getString(R.string.kb_period_cd)
+        buttonPeriod?.isClickable = true
+        buttonPeriod?.isEnabled = true
     }
 
     private fun renderEmojiKey(context: Context, s: UiState) {
         val emojiBtn = buttonEmoji ?: return
-        val isMiddleReplaced = (tab == Tab.Emoji) || (tab == Tab.Clip) || (s == UiState.Inserted) || isRepolishing || (overlay == Overlay.Viewer)
-
-        if (s == UiState.Recording || s == UiState.Processing) {
-            emojiBtn.isEnabled = false
-            emojiBtn.alpha = 0.38f
-            buttonEmojiIcon?.visibility = View.VISIBLE
-            buttonEmojiBackContent?.visibility = View.GONE
-            emojiBtn.setBackgroundResource(R.drawable.kb_bg_key_alt)
-            emojiBtn.contentDescription = context.getString(R.string.kb_emoji_key_cd)
-        } else if (isMiddleReplaced) {
-            emojiBtn.isEnabled = true
-            emojiBtn.alpha = 1.0f
-            buttonEmojiIcon?.visibility = View.GONE
-            buttonEmojiBackContent?.visibility = View.VISIBLE
-            emojiBtn.setBackgroundResource(R.drawable.kb_bg_key_container)
-            emojiBtn.contentDescription = context.getString(R.string.kb_back_to_voice_cd)
-        } else {
-            emojiBtn.isEnabled = true
-            emojiBtn.alpha = 1.0f
-            buttonEmojiIcon?.visibility = View.VISIBLE
-            buttonEmojiBackContent?.visibility = View.GONE
-            emojiBtn.setBackgroundResource(R.drawable.kb_bg_key_alt)
-            emojiBtn.contentDescription = context.getString(R.string.kb_emoji_key_cd)
-        }
+        val enabled = s != UiState.Recording && s != UiState.Processing
+        emojiBtn.isEnabled = enabled
+        emojiBtn.alpha = if (enabled) 1.0f else 0.38f
+        emojiBtn.setBackgroundResource(R.drawable.kb_bg_key_alt)
+        emojiBtn.contentDescription = context.getString(R.string.kb_emoji_key_cd)
     }
 
     private fun onEmojiKeyClick() {
         val s = state
-        val isMiddleReplaced = (tab == Tab.Emoji) || (tab == Tab.Clip) || (s == UiState.Inserted) || isRepolishing || (overlay == Overlay.Viewer)
-        if (isMiddleReplaced) {
-            onReturnToVoice()
-        } else {
-            haptic(buttonEmoji, HapticFeedbackConstants.KEYBOARD_TAP)
+        if (s == UiState.Recording || s == UiState.Processing) return
+        haptic(buttonEmoji, HapticFeedbackConstants.KEYBOARD_TAP)
+        if (tab != Tab.Emoji) {
             openEmojiPanel()
         }
     }
