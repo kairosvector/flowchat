@@ -88,10 +88,17 @@ class ToneListAdapter(
         holder.toneSwitch.setOnCheckedChangeListener(null)
         if (tone.id == TONE_BASIC) {
             holder.toneSwitch.isChecked = true
-            holder.toneSwitch.isEnabled = false
+            holder.toneSwitch.isEnabled = true
             holder.toneSwitch.alpha = 0.6f
             holder.toneSwitch.setOnClickListener {
+                holder.toneSwitch.isChecked = true
                 android.widget.Toast.makeText(context, R.string.set_tone_basic_locked, android.widget.Toast.LENGTH_SHORT).show()
+            }
+            holder.toneSwitch.setOnCheckedChangeListener { buttonView, isChecked ->
+                if (!isChecked) {
+                    buttonView.isChecked = true
+                    android.widget.Toast.makeText(context, R.string.set_tone_basic_locked, android.widget.Toast.LENGTH_SHORT).show()
+                }
             }
         } else {
             holder.toneSwitch.isEnabled = true
