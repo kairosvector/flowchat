@@ -2,6 +2,29 @@
 
 原專案：j3soon/whisper-to-input（GPL-3.0，作者 Yan-Bin Diau、Johnson Sun 等，見原 LICENSE 與 README）。
 
+## 2026-11-02 fork6 第十九輪：Base + Addon 模組化 Prompt 架構與長度偏好調節（版本 0.4-fork6，versionCode 28）
+- 模組化 Base + Addon 架構與全新 4 大預設語氣（A1–A3，SPEC_r8 v1.6）：
+  - 核心 Base Prompt 瘦身與模組化（~85 tokens）：沉澱不變角色定位、繁體中文（台灣用字）防線、防幻覺承諾、`<原文>` 純資料防注入圍欄與純文字輸出規範。
+  - 全新 4 大預設語氣 Addon（`TonePrompts.kt`）：
+    1. 基礎整理（`basic`，簡稱「基礎」，去贅字修標點，原汁原味）：刪除「嗯、呃、那個」贅字與結巴、修正錯字標點、自我修正保留最後說法、保留口語與自然表達不刻意改成書面語。
+    2. 專業潤飾（`pro`，簡稱「專業」，工作訊息，條理成熟）：商務清晰表達、刪除贅字重複與語助詞、不加 emoji、改善語序邏輯、手機簡潔排版。
+    3. 高情商聊天（`eq_chat`，簡稱「情商」，溫暖體貼，化解生硬）：有溫度同理心、緩和爭議保留立場真實意思、日常簡潔表達不油膩、自我修正保留最後說法、適當處最多 1 個 emoji。
+    4. 幽默聊天（`humor_chat`，簡稱「幽默」，輕鬆風趣，帶梗不尬）：風趣自嘲接話、敏感情境嚴禁強行搞笑、避免低俗爛梗與扭曲事實、日常聊天節奏、適當處最多 1 個 emoji。
+  - 動態組裝：發送 API 前，在記憶體中以 `BasePrompt.build(addonPrompt, lengthModifier)` 動態組裝完整 System Prompt。
+- 語氣自訂與顯示開關（基礎鎖定機制）（B1–B3）：
+  - `Tone` 資料模型新增 `addonPrompt` 與 `enabled: Boolean = true`；升級 `POLISH_PROMPT_VERSION = 6`，平順遷移舊設定為新版 4 預設。
+  - 設定頁「AI 潤飾語氣」清單每個語氣右側增加開關（Switch），控制鍵盤快速選單顯示。
+  - 「基礎整理」（id: `basic`）開關鎖定開啟且不可停用（`isEnabled = false`，點擊提示「核心基礎不可停用」）。
+  - 語氣編輯與新增聚焦於 Addon 風格指令，背後自動受 Base 安全保護。
+  - 鍵盤頂列語氣選單僅顯示「關」＋已啟用（`enabled == true`）語氣。
+- 長度偏好調節（Length Modifier）與邏輯隔離（C1–C2）：
+  - 設定頁新增「潤飾篇幅偏好」（DataStore: `polish-length-mode`）三段分段按鈕：
+    - `concise`（精簡）：附加 `- 篇幅極簡俐落，一針見血，精準保留核心意思，不說多餘廢話。`
+    - `standard`（標準，預設）：不附加額外篇幅指令。
+    - `elaborate`（展開）：附加 `- 可適度委婉展開、豐富細節與修飾，提供充裕的緩衝與完整表達。`
+  - 邏輯隔離：篇幅偏好僅套用於專業、情商、幽默（及自訂）語氣，「基礎整理（`basic`）」永遠忽略長度偏好，維持 100% 原汁原味純淨聽寫。
+- versionCode 27→28；簽章維持本機 debug keystore。
+
 ## 2026-11-02 fork6 第十八輪：頂部導航列標準化與雙軌備援 Key / Model 機制（版本 0.4-fork6，versionCode 27）
 - 頂部導航列原生架構標準化（A1–A2，SPEC_r8 v1.6）：
   - 頂部導航列（Top Navigation Bar）動態切換：在子面板模式（`Tab.Emoji` 表情面板、`Tab.Clip` 紀錄面板、`UiState.Inserted` 結果卡）下，頂列 `top_row` 動態切換為子介面導航列：
