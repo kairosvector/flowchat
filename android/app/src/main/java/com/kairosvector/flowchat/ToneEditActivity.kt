@@ -108,7 +108,7 @@ class ToneEditActivity : AppCompatActivity() {
                     short = ToneRules.defaultShort(getString(R.string.set_tone_new_name)),
                     desc = getString(R.string.set_tone_new_desc),
                     // A new tone starts from the 專業 instruction.
-                    prompt = tones.firstOrNull { it.id == TONE_PRO }?.prompt ?: TonePrompts.PRO,
+                    addonPrompt = tones.firstOrNull { it.id == TONE_PRO }?.addonPrompt ?: TonePrompts.PRO_TEXT,
                     builtin = false
                 )
                 else -> tones.firstOrNull { it.id == wanted } ?: tones.first()
@@ -120,10 +120,10 @@ class ToneEditActivity : AppCompatActivity() {
     private fun show(t: Tone) {
         baseName = t.name
         baseShort = t.short
-        basePrompt = t.prompt
+        basePrompt = t.addonPrompt
         editName.setText(t.name)
         editShort.setText(t.short)
-        editPrompt.setText(t.prompt)
+        editPrompt.setText(t.addonPrompt)
         shortTouched = false
         lastAutoShort = ToneRules.defaultShort(t.name)
         btnReset.visibility = if (t.builtin) View.VISIBLE else View.GONE
@@ -192,7 +192,7 @@ class ToneEditActivity : AppCompatActivity() {
 
     private fun save(name: String, short: String, prompt: String) {
         val current = tone ?: return
-        val updated = current.copy(name = name, short = short, prompt = prompt)
+        val updated = current.copy(name = name, short = short, addonPrompt = prompt)
         lifecycleScope.launch {
             val list = if (isNew) tones + updated else tones.map { if (it.id == current.id) updated else it }
             ToneStore.saveTones(this@ToneEditActivity, list)
@@ -207,7 +207,7 @@ class ToneEditActivity : AppCompatActivity() {
             .setNegativeButton(R.string.set_cancel, null)
             .setPositiveButton(R.string.set_tone_reset) { _, _ ->
                 // Back to the built-in instruction; the form is filled, 儲存 still decides.
-                TonePrompts.builtinPrompt(current.id)?.let { editPrompt.setText(it) }
+                TonePrompts.builtinAddon(current.id)?.let { editPrompt.setText(it) }
             }
             .show()
     }

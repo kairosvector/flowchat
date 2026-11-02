@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- One tone row of the settings list (SPEC_r8 §14): handle | name + tags + start of the
-     instruction | chevron. 68dp high. -->
+<!-- One tone row of the settings list (SPEC_r8 §14 / Round 19): handle | name + tags + preview | switch | chevron. 68dp high. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -85,6 +84,12 @@
             android:textColor="@color/kb_on_surface_variant"
             android:textSize="12sp" />
     </LinearLayout>
+
+    <com.google.android.material.materialswitch.MaterialSwitch
+        android:id="@+id/tone_switch"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="4dp" />
 
     <ImageView
         android:layout_width="24dp"

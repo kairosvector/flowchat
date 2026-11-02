@@ -37,7 +37,8 @@ import androidx.recyclerview.widget.RecyclerView
 class ToneListAdapter(
     private val onClick: (Tone) -> Unit,
     private val onOrderChanged: (List<Tone>) -> Unit,
-    private val startDrag: (RecyclerView.ViewHolder) -> Unit
+    private val startDrag: (RecyclerView.ViewHolder) -> Unit,
+    private val onToggleEnabled: ((Tone, Boolean) -> Unit)? = null
 ) : RecyclerView.Adapter<ToneListAdapter.Holder>() {
 
     var tones: MutableList<Tone> = mutableListOf()
@@ -66,6 +67,7 @@ class ToneListAdapter(
         val kind: TextView = view.findViewById(R.id.tone_kind)
         val current: TextView = view.findViewById(R.id.tone_current)
         val preview: TextView = view.findViewById(R.id.tone_preview)
+        val toneSwitch: com.google.android.material.materialswitch.MaterialSwitch = view.findViewById(R.id.tone_switch)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder =
@@ -83,6 +85,28 @@ class ToneListAdapter(
         holder.current.visibility = if (tone.id == currentId) View.VISIBLE else View.GONE
         holder.preview.text = TonePreview.of(tone.prompt)
         holder.itemView.setOnClickListener { onClick(tone) }
+        holder.toneSwitch.setOnCheckedChangeListener(null)
+        if (tone.id == TONE_BASIC) {
+            holder.toneSwitch.isChecked = true
+            holder.toneSwitch.isEnabled = false
+            holder.toneSwitch.alpha = 0.6f
+            holder.toneSwitch.setOnClickListener {
+                android.widget.Toast.makeText(context, R.string.set_tone_basic_locked, android.widget.Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            holder.toneSwitch.isEnabled = true
+            holder.toneSwitch.alpha = 1.0f
+            holder.toneSwitch.isChecked = tone.enabled
+            holder.toneSwitch.setOnClickListener(null)
+            holder.toneSwitch.setOnCheckedChangeListener { _, isChecked ->
+                val updated = tone.copy(enabled = isChecked)
+                val idx = tones.indexOfFirst { it.id == tone.id }
+                if (idx != -1) {
+                    tones[idx] = updated
+                }
+                onToggleEnabled?.invoke(tone, isChecked)
+            }
+        }
         holder.handle.contentDescription = context.getString(R.string.set_drag_cd, tone.name)
         // Only the handle starts a drag.
         holder.handle.setOnTouchListener { _, event ->

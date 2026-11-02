@@ -2360,7 +2360,8 @@ class WhisperKeyboard {
                 context.getString(R.string.kb_tone_off_desc), selected = !toneState.polishOn, withPrompt = false
             )
         )
-        for (tone in toneState.tones) {
+        val enabledTones = toneState.tones.filter { it.enabled }
+        for (tone in enabledTones) {
             list.addView(
                 menuRow(
                     context, tone.id, tone.name, ToneDisplay.desc(context, tone),
@@ -2369,7 +2370,7 @@ class WhisperKeyboard {
             )
         }
 
-        val n = toneState.tones.size
+        val n = enabledTones.size
         val scroll = toneMenuScroll
         val divider = toneMenuDivider
         val fade = toneMenuFade
@@ -2519,7 +2520,8 @@ class WhisperKeyboard {
         val density = context.resources.displayMetrics.density
         val scale = historyScale(context)
         chips.removeAllViews()
-        for (tone in toneState.tones) {
+        val enabledTones = toneState.tones.filter { it.enabled }
+        for (tone in enabledTones) {
             val selected = tone.id == viewerToneId
             chips.addView(TextView(context).apply {
                 text = if (selected) "✓ " + tone.name else tone.name
