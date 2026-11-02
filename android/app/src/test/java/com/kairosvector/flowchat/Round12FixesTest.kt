@@ -55,7 +55,7 @@ class Round12FixesTest {
         assertEquals(R.string.kb_tone_chat_desc, ToneDisplay.descRes(chat))
         assertEquals("口語＋emoji", strings.getValue("kb_tone_chat_desc"))   // what the menu shows
         assertEquals(R.string.kb_tone_pro_desc, ToneDisplay.descRes(saved.first { it.id == TONE_PRO }))
-        assertEquals("工作訊息", strings.getValue("kb_tone_pro_desc"))
+        assertEquals("工作訊息，條理成熟", strings.getValue("kb_tone_pro_desc"))
     }
 
     @Test
@@ -67,8 +67,8 @@ class Round12FixesTest {
 
     @Test
     fun theNewDefaultToneListUsesTheNewChatWording() {
-        val chat = TonePrompts.defaultTones().first { it.id == TONE_CHAT }
-        assertEquals("口語＋emoji", chat.desc)
+        val chat = TonePrompts.defaultTones().first { it.id == TONE_EQ_CHAT || it.id == TONE_CHAT }
+        assertEquals("溫暖體貼，化解生硬", chat.desc)
         assertFalse(strings.getValue("kb_tone_chat_desc").contains("少量"))
         assertTrue(strings.containsKey("kb_tone_pro_desc"))
     }

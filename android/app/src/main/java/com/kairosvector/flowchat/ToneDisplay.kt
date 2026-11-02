@@ -23,7 +23,7 @@ import android.content.Context
 import androidx.annotation.StringRes
 
 /**
- * What the keyboard shows as the description of a tone. The two built-in
+ * What the keyboard shows as the description of a tone. The built-in
  * tones always use the string resources (so a wording change reaches users
  * whose `tones-json` already holds the old text); custom tones use their own.
  */
@@ -32,7 +32,10 @@ object ToneDisplay {
     fun descRes(tone: Tone): Int? {
         if (!tone.builtin) return null
         return when (tone.id) {
+            TONE_BASIC -> R.string.kb_tone_basic_desc
             TONE_PRO -> R.string.kb_tone_pro_desc
+            TONE_EQ_CHAT -> R.string.kb_tone_eq_chat_desc
+            TONE_HUMOR_CHAT -> R.string.kb_tone_humor_chat_desc
             TONE_CHAT -> R.string.kb_tone_chat_desc
             else -> null
         }

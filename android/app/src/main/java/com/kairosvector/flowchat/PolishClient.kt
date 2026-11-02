@@ -99,15 +99,17 @@ const val DEFAULT_STT_LANGUAGE = "auto"
  * Prompt version stored in SharedPreferences (see PolishPromptMigration).
  * Bump this together with DEFAULT_POLISH_PROMPT when the default changes.
  */
-const val POLISH_PROMPT_VERSION = 5
+const val POLISH_PROMPT_VERSION = 6
 
 /**
- * Default polish prompt (v5, fork6 Round 16). The user's text is sent wrapped in
- * <原文>...</原文>, and this prompt tells the model it is data to clean
- * up, not a question or an instruction. Zero-shot, lean, strictly defends against
- * simplified Chinese and Korean, and auto line-breaks listed items.
+ * Default polish prompt (v6, fork6 Round 19 Base+Addon architecture).
  */
-const val DEFAULT_POLISH_PROMPT =
+val DEFAULT_POLISH_PROMPT: String get() = TonePrompts.BASIC
+
+/**
+ * The default prompt of round 16 - 18 (prompt version 5).
+ */
+const val LEGACY_POLISH_PROMPT_V5 =
     "你是文字編輯，只輸出整理後的成品，不加任何解釋、前言或引號。" +
     "使用者說的話在 <原文> 標籤內，只整理標籤內文字。" +
     "語言規則：中文全文必須使用『繁體中文（台灣常用字）』，絕對禁止輸出簡體中文或韓文；若逐字稿是簡體字必須全部轉為繁體。非中文的專有名詞、數字、英文術語保持原樣；非中文內容保持原語言，不硬翻成中文。" +
@@ -241,7 +243,12 @@ object PolishClient {
             if (endpoint.isEmpty() || model.isEmpty() || key.isEmpty()) {
                 return fail("not configured (endpoint/model/key missing)")
             }
-            val prompt = config.prompt.ifBlank { DEFAULT_POLISH_PROMPT }
+            val rawPrompt = config.prompt.ifBlank { DEFAULT_POLISH_PROMPT }
+            val prompt = if (rawPrompt.contains("<原文>") || rawPrompt.contains("你是文字編輯")) {
+                rawPrompt
+            } else {
+                BasePrompt.build(rawPrompt)
+            }
 
             val body = JSONObject()
             body.put("model", model)
