@@ -118,6 +118,7 @@ val LLM_PROMPT = stringPreferencesKey("llm-prompt")
 // the migration.
 val TONES_JSON = stringPreferencesKey("tones-json")
 val POLISH_TONE = stringPreferencesKey("polish-tone")
+val POLISH_LENGTH_MODE = stringPreferencesKey("polish-length-mode")
 
 /**
  * Fork6 round 6: the redesigned settings page. Every field saves itself
@@ -156,6 +157,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var cardStt: ViewGroup
     private lateinit var cardAi: ViewGroup
     private lateinit var toggleGroup: MaterialButtonToggleGroup
+    private lateinit var togglePolishLength: MaterialButtonToggleGroup
     private lateinit var toneList: RecyclerView
     private lateinit var btnToneAdd: MaterialButton
     private lateinit var textToneLimit: TextView
@@ -274,6 +276,7 @@ class MainActivity : AppCompatActivity() {
         cardStt = findViewById(R.id.card_stt)
         cardAi = findViewById(R.id.card_ai)
         toggleGroup = findViewById(R.id.toggle_postprocessing)
+        togglePolishLength = findViewById(R.id.toggle_polish_length)
         toneList = findViewById(R.id.tone_list)
         btnToneAdd = findViewById(R.id.btn_tone_add)
         textToneLimit = findViewById(R.id.text_tone_limit)
@@ -402,6 +405,7 @@ class MainActivity : AppCompatActivity() {
             setupLanguageDropdown()
             setupSwitches(prefs)
             setupPostprocessing(prefs)
+            setupPolishLength(prefs)
             setupTones()
             setupClipClear()
             refreshClipCount()
@@ -871,6 +875,34 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun setupPolishLength(prefs: Preferences) {
+        val buttons = listOf(R.id.btn_length_concise, R.id.btn_length_standard, R.id.btn_length_elaborate)
+        val stored = prefs[POLISH_LENGTH_MODE] ?: LengthMode.DEFAULT
+        val checkedBtn = when (stored) {
+            LengthMode.CONCISE.id -> R.id.btn_length_concise
+            LengthMode.ELABORATE.id -> R.id.btn_length_elaborate
+            else -> R.id.btn_length_standard
+        }
+        togglePolishLength.check(checkedBtn)
+        fun styleChecked() {
+            for (id in buttons) {
+                val b = findViewById<MaterialButton>(id)
+                b.setTypeface(null, if (b.isChecked) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+            }
+        }
+        styleChecked()
+        togglePolishLength.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            styleChecked()
+            if (!isChecked || !settingsLoaded) return@addOnButtonCheckedListener
+            val mode = when (checkedId) {
+                R.id.btn_length_concise -> LengthMode.CONCISE.id
+                R.id.btn_length_elaborate -> LengthMode.ELABORATE.id
+                else -> LengthMode.STANDARD.id
+            }
+            lifecycleScope.launch { save(POLISH_LENGTH_MODE, mode) }
+        }
+    }
+
     // ---- clipboard ----------------------------------------------------------------
 
     private var clipCount = 0
@@ -920,7 +952,11 @@ class MainActivity : AppCompatActivity() {
                 if (!settingsLoaded) return@ToneListAdapter
                 lifecycleScope.launch { ToneStore.saveTones(this@MainActivity, list) }
             },
-            startDrag = { holder -> toneTouchHelper.startDrag(holder) }
+            startDrag = { holder -> toneTouchHelper.startDrag(holder) },
+            onToggleEnabled = { _, _ ->
+                if (!settingsLoaded) return@ToneListAdapter
+                lifecycleScope.launch { ToneStore.saveTones(this@MainActivity, toneAdapter.tones.toList()) }
+            }
         )
         toneList.layoutManager = LinearLayoutManager(this)
         toneList.adapter = toneAdapter

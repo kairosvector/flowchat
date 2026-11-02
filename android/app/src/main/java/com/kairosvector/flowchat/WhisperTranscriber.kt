@@ -132,7 +132,10 @@ class WhisperTranscriber {
                     preferences[LLM_FALLBACK_MODEL] ?: DEFAULT_LLM_FALLBACK_MODEL,
                     preferences[FALLBACK_API_KEY] ?: "",
                     preferences[LLM_API_KEY] ?: "",
-                    (tones.current ?: tones.tones.first()).prompt,
+                    run {
+                        val lengthMode = LengthMode.fromId(preferences[POLISH_LENGTH_MODE])
+                        (tones.current ?: tones.tones.first()).buildPrompt(lengthMode)
+                    },
                     tones.current?.id
                 )
             }.first()
@@ -335,6 +338,8 @@ class WhisperTranscriber {
                     val prefs = context.dataStore.data.first()
                     val sttKey = prefs[API_KEY] ?: ""
                     val tones = ToneStore.resolve(prefs)
+                    val lengthMode = LengthMode.fromId(prefs[POLISH_LENGTH_MODE])
+                    val targetTone = tones.byId(toneId) ?: tones.current ?: tones.tones.first()
                     val result = PolishClient.polishDetailed(
                         rawText,
                         PolishConfig(
@@ -342,7 +347,7 @@ class WhisperTranscriber {
                             endpoint = prefs[LLM_ENDPOINT] ?: DEFAULT_LLM_ENDPOINT,
                             model = prefs[LLM_MODEL] ?: DEFAULT_LLM_MODEL,
                             apiKey = (prefs[LLM_API_KEY] ?: "").ifBlank { sttKey },
-                            prompt = (tones.byId(toneId) ?: tones.current ?: tones.tones.first()).prompt,
+                            prompt = targetTone.buildPrompt(lengthMode),
                             fallbackModel = prefs[LLM_FALLBACK_MODEL] ?: DEFAULT_LLM_FALLBACK_MODEL,
                             fallbackApiKey = prefs[FALLBACK_API_KEY] ?: ""
                         ),

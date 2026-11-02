@@ -115,7 +115,10 @@
     <string name="kb_seg_history">紀錄</string>
     <string name="kb_tone_cd">AI 語氣：%1$s</string>
     <string name="kb_tone_off_short">關</string>
+    <string name="kb_tone_basic_short">基礎</string>
     <string name="kb_tone_pro_short">專業</string>
+    <string name="kb_tone_eq_chat_short">情商</string>
+    <string name="kb_tone_humor_chat_short">幽默</string>
     <string name="kb_clip_delete">刪除</string>
     <string name="kb_time_now">剛剛</string>
     <string name="kb_time_min">%1$d 分鐘前</string>
@@ -149,7 +152,10 @@
     <string name="set_clip_clear_confirm_count">要清除 %1$d 筆剪貼簿紀錄嗎？</string>
     <string name="set_clip_clear_done">已清除</string>
     <string name="kb_tone_off_name">關</string>
-    <string name="kb_tone_pro_desc">工作訊息</string>
+    <string name="kb_tone_basic_desc">去贅字修標點，原汁原味</string>
+    <string name="kb_tone_pro_desc">工作訊息，條理成熟</string>
+    <string name="kb_tone_eq_chat_desc">溫暖體貼，化解生硬</string>
+    <string name="kb_tone_humor_chat_desc">輕鬆風趣，帶梗不尬</string>
     <string name="kb_tone_chat_desc">口語＋emoji</string>
     <string name="kb_tone_off_desc">不潤飾，插入原文</string>
     <string name="kb_tone_view_prompt_cd">查看%1$s的指令</string>
@@ -187,6 +193,14 @@
     <string name="set_tone_injection_warn">指令裡沒有防注入的說明，原文可能被當成指令執行。仍要儲存？</string>
     <string name="set_tone_injection_save">仍要儲存</string>
     <string name="set_tone_discard">要捨棄修改嗎？</string>
+    <string name="set_tone_basic_locked">核心基礎不可停用</string>
+
+    <!-- Polish length mode (Round 19) -->
+    <string name="st_polish_length_title">潤飾篇幅偏好</string>
+    <string name="st_polish_length_concise">精簡</string>
+    <string name="st_polish_length_standard">標準</string>
+    <string name="st_polish_length_elaborate">展開</string>
+    <string name="st_polish_length_helper">篇幅偏好僅套用於專業、情商、幽默語氣，基礎整理維持原汁原味</string>
     <string name="set_save">儲存</string>
     <string name="set_cancel">取消</string>
     <string name="set_discard">捨棄</string>
