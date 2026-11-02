@@ -67,7 +67,7 @@ class WhisperInputService : InputMethodService() {
 
     private fun transcriptionCallback(
         text: String?, raw: String?, polished: String?, note: PolishNote, polishError: ErrorDisplay?,
-        toneId: String?, usedFallbackModel: Boolean = false
+        toneId: String?, usedFallbackModel: Boolean = false, usedFallbackKey: Boolean = false
     ) {
         if (!text.isNullOrEmpty()) {
             val inserted = polished ?: raw ?: text
@@ -82,7 +82,7 @@ class WhisperInputService : InputMethodService() {
                 ResultMode.INSERTED_POLISHED -> {
                     // Polished OK: text inserted directly, card shown with tone & actions
                     currentInputConnection?.commitText(text, 1)
-                    whisperKeyboard.showInsertedResult(raw ?: text.trim(), polished ?: text, text, toneId, usedFallbackModel)
+                    whisperKeyboard.showInsertedResult(raw ?: text.trim(), polished ?: text, text, toneId, usedFallbackModel, usedFallbackKey)
                     switchBackIfWanted()
                 }
                 ResultMode.INSERTED_FAILED_RETRY -> {
@@ -224,7 +224,11 @@ class WhisperInputService : InputMethodService() {
             { text -> onInsertText(text) },
             { inserted -> onUndoInsert(inserted) },
             { old, replacement -> onReplaceInserted(old, replacement) },
-            { raw, toneId, done -> whisperTranscriber.polishAsync(this, raw, toneId, done) },
+            { raw, toneId, done ->
+                whisperTranscriber.polishAsync(this, raw, toneId) { text, error, usedFallbackModel, usedFallbackKey ->
+                    done(text, error, usedFallbackModel, usedFallbackKey)
+                }
+            },
             { toneId -> onOpenToneEditor(toneId) },
         )
         applyNavigationBarStyle()
@@ -316,8 +320,8 @@ class WhisperInputService : InputMethodService() {
             recordedAudioFilename,
             audioMediaType,
             attachToEnd,
-            { text, raw, polished, note, polishError, toneId, usedFallback ->
-                transcriptionCallback(text, raw, polished, note, polishError, toneId, usedFallback)
+            { text, raw, polished, note, polishError, toneId, usedFallbackModel, usedFallbackKey ->
+                transcriptionCallback(text, raw, polished, note, polishError, toneId, usedFallbackModel, usedFallbackKey)
             },
             { transcriptionExceptionCallback(it) },
             { stage, text -> onPolishStage(stage, text) })

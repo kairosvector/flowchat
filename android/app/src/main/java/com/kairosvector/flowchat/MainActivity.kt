@@ -110,6 +110,7 @@ val LLM_ENDPOINT = stringPreferencesKey("llm-endpoint")
 val LLM_MODEL = stringPreferencesKey("llm-model")
 val LLM_FALLBACK_MODEL = stringPreferencesKey("llm-fallback-model")
 val LLM_API_KEY = stringPreferencesKey("llm-api-key")
+val FALLBACK_API_KEY = stringPreferencesKey("fallback-api-key")
 val LLM_PROMPT = stringPreferencesKey("llm-prompt")
 // Round 11b: the AI tones (SPEC_r8 §15). tones-json is the ordered list,
 // polish-tone the current tone id or "off". polish-enabled stays and is
@@ -170,12 +171,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var fieldLlmModel: TextSetting
     private lateinit var fieldLlmFallbackModel: TextSetting
     private lateinit var fieldLlmKey: TextSetting
+    private lateinit var fieldFallbackApiKey: TextSetting
     private val allFields = mutableListOf<TextSetting>()
     private val skippedFields = linkedSetOf<String>()
 
     private var advancedSttExpanded = false
     private var advancedAiExpanded = false
-    private var keyRevealed = booleanArrayOf(false, false)
+    private var keyRevealed = booleanArrayOf(false, false, false)
     private var navBottom = 0
     private var snackbar: Snackbar? = null
 
@@ -233,6 +235,7 @@ class MainActivity : AppCompatActivity() {
         // Hide the API keys again whenever the page is left.
         setKeyRevealed(0, false)
         setKeyRevealed(1, false)
+        setKeyRevealed(2, false)
         if (!settingsLoaded) return
         lifecycleScope.launch {
             allFields.forEach { it.commit() }
@@ -574,6 +577,10 @@ class MainActivity : AppCompatActivity() {
             tilOf(R.id.til_llm_key), findViewById(R.id.edit_llm_key), LLM_API_KEY, R.string.st_ai_key,
             card = { R.id.card_ai }, isActive = { polishEnabled }, transform = { it.trim() }
         )
+        fieldFallbackApiKey = TextSetting(
+            tilOf(R.id.til_fallback_api_key), findViewById(R.id.edit_fallback_api_key), FALLBACK_API_KEY, R.string.st_ai_fallback_key,
+            card = { R.id.card_ai }, isActive = { polishEnabled }, transform = { it.trim() }
+        )
 
         // Initial values: saved ones, or the same defaults the old page showed.
         val endpointDefault = SettingsOptions.defaultEndpoint(backend)
@@ -585,16 +592,18 @@ class MainActivity : AppCompatActivity() {
         fieldLlmModel.bind(prefs[LLM_MODEL] ?: DEFAULT_LLM_MODEL)
         fieldLlmFallbackModel.bind(prefs[LLM_FALLBACK_MODEL] ?: DEFAULT_LLM_FALLBACK_MODEL)
         fieldLlmKey.bind(prefs[LLM_API_KEY].orEmpty())
+        fieldFallbackApiKey.bind(prefs[FALLBACK_API_KEY].orEmpty())
         // "saved" for the language field is the language itself.
         fieldLanguageCustom.saved = language
         allFields += listOf(
             fieldEndpoint, fieldApiKey, fieldModel, fieldLanguageCustom,
-            fieldLlmEndpoint, fieldLlmModel, fieldLlmFallbackModel, fieldLlmKey
+            fieldLlmEndpoint, fieldLlmModel, fieldLlmFallbackModel, fieldLlmKey, fieldFallbackApiKey
         )
 
         // API keys: only the last 4 characters are visible until the eye is pressed.
         setupKeyField(0, fieldApiKey.til, fieldApiKey.edit)
         setupKeyField(1, fieldLlmKey.til, fieldLlmKey.edit)
+        setupKeyField(2, fieldFallbackApiKey.til, fieldFallbackApiKey.edit)
 
         findViewById<View>(R.id.btn_endpoint_restore).setOnClickListener {
             lifecycleScope.launch {
@@ -635,9 +644,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setKeyRevealed(index: Int, revealed: Boolean) {
-        if (!::fieldApiKey.isInitialized) return
+        if (!::fieldApiKey.isInitialized || !::fieldLlmKey.isInitialized || !::fieldFallbackApiKey.isInitialized) return
         keyRevealed[index] = revealed
-        val (til, edit) = if (index == 0) fieldApiKey.til to fieldApiKey.edit else fieldLlmKey.til to fieldLlmKey.edit
+        val (til, edit) = when (index) {
+            0 -> fieldApiKey.til to fieldApiKey.edit
+            1 -> fieldLlmKey.til to fieldLlmKey.edit
+            else -> fieldFallbackApiKey.til to fieldFallbackApiKey.edit
+        }
         val start = edit.selectionStart
         val end = edit.selectionEnd
         edit.transformationMethod = if (revealed) null else LastFourTransformation()

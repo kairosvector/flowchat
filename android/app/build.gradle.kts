@@ -45,6 +45,9 @@ android {
     lint {
         disable += "UseAppTint"
     }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {

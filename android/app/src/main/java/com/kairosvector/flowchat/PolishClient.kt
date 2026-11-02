@@ -171,7 +171,8 @@ data class PolishConfig(
     val model: String,
     val apiKey: String,
     val prompt: String,
-    val fallbackModel: String = DEFAULT_LLM_FALLBACK_MODEL
+    val fallbackModel: String = DEFAULT_LLM_FALLBACK_MODEL,
+    val fallbackApiKey: String = ""
 )
 
 /** Token usage breakdown from the LLM provider (Round 14 §B2). */
@@ -200,7 +201,8 @@ object PolishClient {
         data class Ok(
             val text: String,
             val usage: TokenUsage? = null,
-            val usedFallbackModel: Boolean = false
+            val usedFallbackModel: Boolean = false,
+            val usedFallbackKey: Boolean = false
         ) : Result()
 
         data class Failed(
@@ -285,20 +287,37 @@ object PolishClient {
                     val code = response.code
                     val errSummary = errorSummary(text)
                     val errText = ErrorMessageMapper.fromHttp(ErrorStage.POLISH, code, retryAfter)
-                    // Round 14 §B3: If 429, retry with fallback model if configured and remaining time > 500ms
-                    if (code == 429 && config.fallbackModel.isNotBlank() && config.fallbackModel != model) {
+                    // Round 14 §B3 & Round 18 §B2: Dual-track fallback on HTTP 429
+                    if (code == 429) {
                         val remainingMs = if (callTimeoutMs != null) callTimeoutMs - elapsed else null
                         if (remainingMs == null || remainingMs > 500) {
-                            Log.i(
-                                TAG,
-                                "Primary polish model hit 429, retrying with fallback model ${config.fallbackModel} (remaining ${remainingMs}ms)"
-                            )
-                            val fallbackConfig = config.copy(model = config.fallbackModel, fallbackModel = "")
-                            val fallbackResult = polishDetailed(rawText, fallbackConfig, httpClient, remainingMs)
-                            if (fallbackResult is Result.Ok) {
-                                return fallbackResult.copy(usedFallbackModel = true)
+                            if (config.fallbackApiKey.isNotBlank()) {
+                                Log.i(
+                                    TAG,
+                                    "Primary polish hit 429, retrying with fallback API key on primary model $model (remaining ${remainingMs}ms)"
+                                )
+                                val fallbackConfig = config.copy(
+                                    apiKey = config.fallbackApiKey.trim(),
+                                    fallbackApiKey = "",
+                                    fallbackModel = ""
+                                )
+                                val fallbackResult = polishDetailed(rawText, fallbackConfig, httpClient, remainingMs)
+                                if (fallbackResult is Result.Ok) {
+                                    return fallbackResult.copy(usedFallbackKey = true)
+                                }
+                                return fallbackResult
+                            } else if (config.fallbackModel.isNotBlank() && config.fallbackModel != model) {
+                                Log.i(
+                                    TAG,
+                                    "Primary polish model hit 429, retrying with fallback model ${config.fallbackModel} (remaining ${remainingMs}ms)"
+                                )
+                                val fallbackConfig = config.copy(model = config.fallbackModel, fallbackModel = "")
+                                val fallbackResult = polishDetailed(rawText, fallbackConfig, httpClient, remainingMs)
+                                if (fallbackResult is Result.Ok) {
+                                    return fallbackResult.copy(usedFallbackModel = true)
+                                }
+                                return fallbackResult
                             }
-                            return fallbackResult
                         }
                     }
                     return fail(

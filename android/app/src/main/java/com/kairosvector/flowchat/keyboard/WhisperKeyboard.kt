@@ -167,8 +167,8 @@ class WhisperKeyboard {
     // what was inserted, in which case nothing was deleted.
     private var onUndoInsert: (String) -> Boolean = { false }
     // Re-polish with the card's tone (SPEC_r8: it never changes the tone).
-    private var onRepolish: (raw: String, toneId: String?, done: (polished: String?, error: ErrorDisplay?, usedFallback: Boolean) -> Unit) -> Unit =
-        { _, _, done -> done(null, null, false) }
+    private var onRepolish: (raw: String, toneId: String?, done: (polished: String?, error: ErrorDisplay?, usedFallbackModel: Boolean, usedFallbackKey: Boolean) -> Unit) -> Unit =
+        { _, _, done -> done(null, null, false, false) }
     // Swaps the text before the cursor for another one (only if it still
     // matches); false = nothing was changed.
     private var onReplaceInserted: (old: String, new: String) -> Boolean = { _, _ -> false }
@@ -415,8 +415,8 @@ class WhisperKeyboard {
         onInsertText: (String) -> Unit = { },
         onUndoInsert: (String) -> Boolean = { false },
         onReplaceInserted: (old: String, new: String) -> Boolean = { _, _ -> false },
-        onRepolish: (raw: String, toneId: String?, done: (polished: String?, error: ErrorDisplay?, usedFallback: Boolean) -> Unit) -> Unit =
-            { _, _, done -> done(null, null, false) },
+        onRepolish: (raw: String, toneId: String?, done: (polished: String?, error: ErrorDisplay?, usedFallbackModel: Boolean, usedFallbackKey: Boolean) -> Unit) -> Unit =
+            { _, _, done -> done(null, null, false, false) },
         onOpenToneEditor: (toneId: String) -> Unit = { },
     ): View {
         val root = layoutInflater.inflate(R.layout.keyboard_view, null)
@@ -679,7 +679,8 @@ class WhisperKeyboard {
         polished: String,
         textWithAttach: String,
         toneId: String? = null,
-        usedFallbackModel: Boolean = false
+        usedFallbackModel: Boolean = false,
+        usedFallbackKey: Boolean = false
     ) {
         cardToneId = toneId
         rawResultText = raw
@@ -692,7 +693,9 @@ class WhisperKeyboard {
         tab = Tab.Voice
         resultScroll?.scrollTo(0, 0)
         setState(UiState.Inserted)
-        if (usedFallbackModel) {
+        if (usedFallbackKey) {
+            showStatus(R.string.kb_status_fallback_key, 2000L)
+        } else if (usedFallbackModel) {
             showStatus(R.string.kb_status_fallback_model, 2000L)
         } else {
             showStatus(R.string.kb_status_inserted, 2000L)
@@ -2201,7 +2204,7 @@ class WhisperKeyboard {
         val context = keyboardView?.context ?: return
         showStatus(context.getString(R.string.kb_status_polishing), -1)
 
-        onRepolish(raw, toneToUse) { polished, error, usedFallback ->
+        onRepolish(raw, toneToUse) { polished, error, usedFallbackModel, usedFallbackKey ->
             if (state != UiState.Inserted || !isRepolishing) return@onRepolish
             stopRepolishShimmer()
             isRepolishing = false
@@ -2222,7 +2225,9 @@ class WhisperKeyboard {
                     polishedResultText = polished
                     polishNote = PolishNote.OK
                     renderResultCard(ctx)
-                    if (usedFallback) {
+                    if (usedFallbackKey) {
+                        showStatus(ctx.getString(R.string.kb_status_fallback_key), 2000L)
+                    } else if (usedFallbackModel) {
                         showStatus(ctx.getString(R.string.kb_status_fallback_model), 2000L)
                     } else {
                         val toneName = toneState.tones.find { it.id == toneToUse }?.name ?: toneState.current?.name.orEmpty()

@@ -628,6 +628,38 @@
                                 android:imeOptions="actionDone"
                                 android:maxLines="1" />
                         </com.google.android.material.textfield.TextInputLayout>
+                        <com.google.android.material.textfield.TextInputLayout
+                            android:id="@+id/til_fallback_api_key"
+                            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginBottom="20dp"
+                            android:hint="@string/st_ai_fallback_key"
+                            app:boxCornerRadiusBottomEnd="12dp"
+                            app:boxCornerRadiusBottomStart="12dp"
+                            app:boxCornerRadiusTopEnd="12dp"
+                            app:boxCornerRadiusTopStart="12dp"
+                            app:boxStrokeWidth="1dp"
+                            app:boxStrokeWidthFocused="2dp"
+                            app:errorEnabled="false"
+                            app:errorTextAppearance="@style/TextAppearance.Material3.BodySmall"
+                            app:helperTextTextAppearance="@style/TextAppearance.Material3.BodySmall"
+                            app:helperTextEnabled="true"
+                            app:helperText="@string/st_ai_fallback_key_helper"
+                            app:endIconMode="custom"
+                            app:placeholderText="@string/st_ai_fallback_key_placeholder">
+                            <com.google.android.material.textfield.TextInputEditText
+                                android:id="@+id/edit_fallback_api_key"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:minHeight="56dp"
+                                android:textSize="14sp"
+                                android:fontFamily="monospace"
+                                android:inputType="textPassword|textNoSuggestions"
+                                android:importantForAutofill="no"
+                                android:imeOptions="actionDone"
+                                android:maxLines="1" />
+                        </com.google.android.material.textfield.TextInputLayout>
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btn_test_llm"
                             style="@style/Widget.Material3.Button.TonalButton"
