@@ -2,6 +2,24 @@
 
 原專案：j3soon/whisper-to-input（GPL-3.0，作者 Yan-Bin Diau、Johnson Sun 等，見原 LICENSE 與 README）。
 
+## 2026-11-02 fork6 第十八輪：頂部導航列標準化與雙軌備援 Key / Model 機制（版本 0.4-fork6，versionCode 27）
+- 頂部導航列原生架構標準化（A1–A2，SPEC_r8 v1.6）：
+  - 頂部導航列（Top Navigation Bar）動態切換：在子面板模式（`Tab.Emoji` 表情面板、`Tab.Clip` 紀錄面板、`UiState.Inserted` 結果卡）下，頂列 `top_row` 動態切換為子介面導航列：
+    - 左上角：常駐 `[← 返回]` 按鈕（48×48dp 觸控，圖示 24dp，contentDescription="返回語音輸入"），點擊立即返回語音輸入主畫面。
+    - 中間區：Emoji 模式顯示 Emoji 分類 Tabs；剪貼簿模式顯示標題與清除鍵；結果卡模式顯示狀態資訊。
+    - 右上角：常駐 `[⌫ 退格鍵]`（BackspaceButton），支援單字素刪除與長按連續退格。
+    - 在子面板模式下隱藏頂列語音分頁、剪貼簿分頁與 AI 語氣鍵；返回語音主畫面待機時，頂列恢復原狀。
+  - 底列佈局全面回歸恆穩與對稱：
+    - 移除底列按鍵動態變形邏輯（底列不再變為「← 返回」或「⌫ 退格」）。
+    - 底列在所有模式下永遠固定為左右完全對稱的 5 顆按鍵：`[切換 52dp]` `[😊 52dp]` `[空白 162dp (weight 1)]` `[。 52dp]` `[Enter 52dp]`，使用者在任何狀態下皆維持穩定肌肉記憶。
+- 雙軌備援 Key 與 Model 機制（B1–B2）：
+  - 設定頁新增「備用 API Key」欄位（`fallback_api_key`），使用 DataStore 儲存，密碼遮蔽顯示，不印 log、不寫明文。
+  - 主請求遭遇 HTTP 429 速率限制時啟動雙軌備援重試（嚴格守住 8 秒時限）：
+    - 若有填寫備用 Key：改用「備用 Key」+ 主模型重試（不同帳號額度立即滿血重置），成功時狀態列顯示「已改用備用金鑰」。
+    - 若未填寫備用 Key：自動切換「備用模型」（預設 `openai/gpt-oss-20b`）+ 原 Key 重試（同帳號不同模型配額），成功時狀態列顯示「已改用備用模型」。
+    - 兩者皆失敗則優雅退回直接插入原文。
+- versionCode 26→27；簽章維持本機 debug keystore。
+
 ## 2026-11-01 fork6 第十七輪：Emoji 面板空間釋放與順手度升級（版本 0.4-fork6，versionCode 26）
 - Emoji 面板極致順手度與空間釋放（A1–A3，選項 B）：
   - 頂列動態隱藏（釋放 48dp 空間）：切換至 Emoji 模式（`Tab.Emoji`）時，頂列 `top_row` 動態設為 `GONE`，中間區域（`middle_area` / `emoji_panel`）自動向上擴展 48dp（高度由 156dp 擴增至 204dp，垂直視野增加超過 30%，可完整呈現 5 大行 Emoji）。點擊底列「← 返回」（`btn_emoji`）切回語音主畫面時，頂列 `top_row` 立即恢復為 `VISIBLE`。
