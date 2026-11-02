@@ -8,6 +8,15 @@
 
 FlowChat 是一款基於語音辨識與大語言模型（LLM）的 Android 智慧鍵盤（IME）。具備超低延遲語音轉文字、多風格 AI 潤飾、雙軌防爆額（429 Fallback）、對稱鍵盤佈局、剪貼簿管理與 Emoji 面板。
 
+### 📸 介面與實戰效果展示
+
+| 1. 主鍵盤介面 | 2. 隨口說 ➔ AI 完美潤飾實測 | 3. 語氣情境快速切換 |
+| :---: | :---: | :---: |
+| <img src="docs/images/scene_1_main_keyboard.png" width="240" /> | <img src="docs/images/scene_2_perfect_speech.png" width="240" /> | <img src="docs/images/scene_3_tone_selector.png" width="240" /> |
+| 對稱底列、麥克風操作列與狀態提示 | 贅字過濾、自動辨識改口自我修正 | 基礎／專業／高情商／幽默 4 大語氣 |
+
+---
+
 ### 🌟 核心特色
 
 1. **模組化 AI 潤飾 (Base + Addon Architecture)**
@@ -41,7 +50,12 @@ FlowChat 推薦搭配 [Groq](https://console.groq.com/) 達到極速轉錄與潤
 
 ### 📲 下載安裝
 
-可直接於 GitHub Releases 下載最新版 APK 進行安裝（或至本機共用資料夾取得 `whisper-input-0.4-fork6.apk`）。
+請至 [GitHub Releases](https://github.com/kairosvector/flowchat/releases) 下載最新版 APK 直接安裝。
+
+### 🛠️ 未來發展與歡迎協作 (Roadmap)
+- [ ] 支援本地離線語音模型 (On-Device Whisper / Vosk)
+- [ ] 支援使用者完全自訂 Prompt 與社群語氣匯入
+- [ ] Material You 動態色彩主題支援
 
 ### 📄 授權條款
 
@@ -52,6 +66,12 @@ FlowChat 推薦搭配 [Groq](https://console.groq.com/) 達到極速轉錄與潤
 ## English
 
 FlowChat is an intelligent voice input keyboard (IME) for Android powered by Speech-to-Text (STT) and LLMs. It features ultra-low latency transcription, modular tone polishers, dual-track 429 rate-limit fallback, symmetric keyboard layouts, clipboard manager, and an emoji picker.
+
+### 📸 Showcase
+
+| 1. Main Keyboard | 2. Instant Speech-to-Polished Test | 3. Tone Switcher |
+| :---: | :---: | :---: |
+| <img src="docs/images/scene_1_main_keyboard.png" width="240" /> | <img src="docs/images/scene_2_perfect_speech.png" width="240" /> | <img src="docs/images/scene_3_tone_selector.png" width="240" /> |
 
 ### 🌟 Key Features
 
@@ -78,6 +98,10 @@ FlowChat is an intelligent voice input keyboard (IME) for Android powered by Spe
    - **STT Key**: Enter your `gsk_...` key
    - **AI Endpoint**: `https://api.groq.com/openai/v1/chat/completions`
    - **AI Model**: `llama-3.3-70b-versatile` (Fallback: e.g., `openai/gpt-oss-20b`)
+
+### 📲 Download
+
+Download the APK from [GitHub Releases](https://github.com/kairosvector/flowchat/releases).
 
 ### 📄 License
 
